@@ -8,7 +8,7 @@ npm install
 ## Step 2: Start MongoDB
 **Option A - Local:**
 ```bash
-# Make sure MongoDB is installed and running
+# Make sure MongoDB is installed and running .
 mongod
 ```
 
