@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Application Dashboard</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      padding: 20px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    header {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .stat-card h3 {
+      font-size: 12px;
+      color: #666;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .stat-card .value {
+      font-size: 32px;
+      font-weight: bold;
+      color: #0A66C2;
+    }
+    .jobs-section {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .jobs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .jobs-header h2 {
+      color: #333;
+    }
+    button {
+      padding: 8px 16px;
+      background: #0A66C2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:hover {
+      background: #004182;
+    }
+    .job-list {
+      display: grid;
+      gap: 15px;
+    }
+    .job-card {
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 16px;
+      transition: all 0.2s;
+    }
+    .job-card:hover {
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .job-card h3 {
+      color: #333;
+      margin-bottom: 8px;
+    }
+    .job-card .company {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+    .job-card .location {
+      color: #999;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .job-card .meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 12px;
+    }
+    .status {
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .status.pending {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .status.applied {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .status.response {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    .job-url {
+      color: #0A66C2;
+      text-decoration: none;
+      font-size: 12px;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+    .empty {
+      text-align: center;
+      padding: 40px;
+      color: #999;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Job Application Dashboard</h1>
+      <p>View and manage your saved jobs</p>
+    </header>
+
+    <div class="stats" id="stats">
+      <div class="stat-card">
+        <h3>Total Jobs</h3>
+        <div class="value" id="total">0</div>
+      </div>
+      <div class="stat-card">
+        <h3>Pending</h3>
+        <div class="value" id="pending">0</div>
+      </div>
+      <div class="stat-card">
+        <h3>Applied</h3>
+        <div class="value" id="applied">0</div>
+      </div>
+      <div class="stat-card">
+        <h3>Responses</h3>
+        <div class="value" id="response">0</div>
+      </div>
+    </div>
+
+    <div class="jobs-section">
+      <div class="jobs-header">
+        <h2>Saved Jobs</h2>
+        <button onclick="loadJobs()">Refresh</button>
+      </div>
+      <div class="job-list" id="jobList">
+        <div class="loading">Loading jobs...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'http://localhost:4000/api';
+
+    async function loadStats() {
+      try {
+        const response = await fetch(`${API_URL}/stats?userId=demo-user`);
+        const data = await response.json();
+        
+        if (data.success) {
+          document.getElementById('total').textContent = data.stats.total;
+          document.getElementById('pending').textContent = data.stats.pending;
+          document.getElementById('applied').textContent = data.stats.applied;
+          document.getElementById('response').textContent = data.stats.response;
+        }
+      } catch (error) {
+        console.error('Error loading stats:', error);
+      }
+    }
+
+    async function loadJobs() {
+      const jobList = document.getElementById('jobList');
+      jobList.innerHTML = '<div class="loading">Loading jobs...</div>';
+
+      try {
+        const response = await fetch(`${API_URL}/jobs?userId=demo-user`);
+        const data = await response.json();
+
+        if (data.success && data.jobs.length > 0) {
+          jobList.innerHTML = data.jobs.map(job => `
+            <div class="job-card">
+              <h3>${escapeHtml(job.title)}</h3>
+              <div class="company">${escapeHtml(job.company)}</div>
+              <div class="location">${escapeHtml(job.location || 'Location not specified')}</div>
+              <div class="meta">
+                <span class="status ${job.status}">${job.status.toUpperCase()}</span>
+                <a href="${job.jobUrl}" target="_blank" class="job-url">View on LinkedIn →</a>
+              </div>
+              <div style="font-size: 11px; color: #999; margin-top: 8px;">
+                Saved: ${new Date(job.createdAt).toLocaleString()}
+              </div>
+            </div>
+          `).join('');
+        } else {
+          jobList.innerHTML = '<div class="empty">No jobs saved yet. Use the Chrome extension to save jobs from LinkedIn!</div>';
+        }
+      } catch (error) {
+        console.error('Error loading jobs:', error);
+        jobList.innerHTML = '<div class="empty">Error loading jobs. Make sure the backend server is running.</div>';
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Load on page load
+    loadStats();
+    loadJobs();
+
+    // Auto-refresh every 30 seconds
+    setInterval(() => {
+      loadStats();
+      loadJobs();
+    }, 30000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+ICONS NOTE:
+===========
+
+For POC testing, icons are optional. Chrome will show a default icon.
+
+To add icons later:
+1. Create 16x16, 48x48, and 128x128 PNG images
+2. Name them: icon16.png, icon48.png, icon128.png
+3. Place in chrome-extension folder
+4. Uncomment icon references in manifest.json
+
+For now, the extension works without icons.
