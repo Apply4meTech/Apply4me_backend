@@ -1,6 +1,10 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const swaggerUi = require('swagger-ui-express');
+const yaml = require('js-yaml');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -18,216 +22,33 @@ mongoose.connect(MONGODB_URI)
   .then(() => console.log('✅ Connected to MongoDB'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// Job Schema
-const JobSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  company: { type: String, required: true },
-  location: { type: String, default: '' },
-  jobUrl: { type: String, required: true },
-  platform: { type: String, default: 'linkedin' },
-  status: { 
-    type: String, 
-    enum: ['pending', 'assigned', 'applied', 'response', 'rejected'],
-    default: 'pending'
-  },
-  userId: { type: String, default: 'demo-user' }, // Will add auth later
-  metadata: {
-    description: String,
-    salary: String,
-    requirements: [String]
-  },
-  createdAt: { type: Date, default: Date.now },
-  savedAt: { type: Date, default: Date.now }
-});
+// Load Swagger YAML file
+const swaggerDocument = yaml.load(fs.readFileSync(path.join(__dirname, 'swagger.yaml'), 'utf8'));
 
-const Job = mongoose.model('Job', JobSchema);
+// Update server URL in swagger document based on PORT
+if (swaggerDocument.servers && swaggerDocument.servers.length > 0) {
+  swaggerDocument.servers[0].url = `http://localhost:${PORT}`;
+}
 
-// Routes
+// Swagger UI Setup
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'Job Application API Docs',
+}));
 
-// Health check
-app.get('/', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    message: 'Job Application Service API',
-    version: '1.0.0'
-  });
-});
+// Import Routes
+const healthRoutes = require('./routes/healthRoutes');
+const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
+const jobRoutes = require('./routes/jobRoutes');
+const statsRoutes = require('./routes/statsRoutes');
 
-// Create job (from Chrome extension)
-app.post('/api/jobs', async (req, res) => {
-  try {
-    const { title, company, location, jobUrl, platform, metadata } = req.body;
-
-    if (!title || !company || !jobUrl) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Missing required fields: title, company, jobUrl' 
-      });
-    }
-
-    const job = await Job.create({
-      title,
-      company,
-      location: location || '',
-      jobUrl,
-      platform: platform || 'linkedin',
-      metadata: metadata || {},
-      userId: req.body.userId || 'demo-user'
-    });
-
-    res.status(201).json({ 
-      success: true, 
-      job,
-      message: 'Job saved successfully'
-    });
-  } catch (error) {
-    console.error('Error creating job:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to save job',
-      details: error.message 
-    });
-  }
-});
-
-// Get all jobs
-app.get('/api/jobs', async (req, res) => {
-  try {
-    const userId = req.query.userId || 'demo-user';
-    const jobs = await Job.find({ userId })
-      .sort({ createdAt: -1 })
-      .limit(100);
-    
-    res.json({ 
-      success: true, 
-      count: jobs.length,
-      jobs 
-    });
-  } catch (error) {
-    console.error('Error fetching jobs:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to fetch jobs' 
-    });
-  }
-});
-
-// Get single job
-app.get('/api/jobs/:id', async (req, res) => {
-  try {
-    const job = await Job.findById(req.params.id);
-    
-    if (!job) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Job not found' 
-      });
-    }
-
-    res.json({ 
-      success: true, 
-      job 
-    });
-  } catch (error) {
-    console.error('Error fetching job:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to fetch job' 
-    });
-  }
-});
-
-// Update job status
-app.patch('/api/jobs/:id', async (req, res) => {
-  try {
-    const { status } = req.body;
-    
-    if (!status) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Status is required' 
-      });
-    }
-
-    const job = await Job.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    );
-
-    if (!job) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Job not found' 
-      });
-    }
-
-    res.json({ 
-      success: true, 
-      job 
-    });
-  } catch (error) {
-    console.error('Error updating job:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to update job' 
-    });
-  }
-});
-
-// Delete job
-app.delete('/api/jobs/:id', async (req, res) => {
-  try {
-    const job = await Job.findByIdAndDelete(req.params.id);
-    
-    if (!job) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Job not found' 
-      });
-    }
-
-    res.json({ 
-      success: true, 
-      message: 'Job deleted successfully' 
-    });
-  } catch (error) {
-    console.error('Error deleting job:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to delete job' 
-    });
-  }
-});
-
-// Get stats
-app.get('/api/stats', async (req, res) => {
-  try {
-    const userId = req.query.userId || 'demo-user';
-    
-    const total = await Job.countDocuments({ userId });
-    const pending = await Job.countDocuments({ userId, status: 'pending' });
-    const applied = await Job.countDocuments({ userId, status: 'applied' });
-    const response = await Job.countDocuments({ userId, status: 'response' });
-
-    res.json({
-      success: true,
-      stats: {
-        total,
-        pending,
-        applied,
-        response,
-        rejected: total - pending - applied - response
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching stats:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to fetch stats' 
-    });
-  }
-});
+// Use Routes
+app.use('/', healthRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/jobs', jobRoutes);
+app.use('/api/stats', statsRoutes);
 
 // Serve dashboard
 app.get('/dashboard', (req, res) => {
@@ -239,4 +60,5 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📊 API available at http://localhost:${PORT}/api/jobs`);
   console.log(`📈 Dashboard: http://localhost:${PORT}/dashboard`);
+  console.log(`📚 Swagger API Docs: http://localhost:${PORT}/api-docs`);
 });

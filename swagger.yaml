@@ -1,0 +1,700 @@
+openapi: 3.0.0
+info:
+  title: Job Application Service API
+  version: 1.0.0
+  description: API documentation for Job Application Service - Manage job applications from various platforms
+  contact:
+    name: API Support
+
+servers:
+  - url: http://localhost:4000
+    description: Development server
+  - url: http://localhost:3000
+    description: Alternative port (if configured)
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Authentication
+    description: User authentication endpoints (signup and login)
+  - name: Users
+    description: User profile management endpoints (protected)
+  - name: Jobs
+    description: Job application management endpoints
+  - name: Statistics
+    description: Job application statistics endpoints
+
+paths:
+  /:
+    get:
+      summary: Health check endpoint
+      tags: [Health]
+      responses:
+        '200':
+          description: API is running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  message:
+                    type: string
+                    example: Job Application Service API
+                  version:
+                    type: string
+                    example: 1.0.0
+
+  /api/jobs:
+    post:
+      summary: Create a new job application
+      tags: [Jobs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - company
+                - jobUrl
+              properties:
+                title:
+                  type: string
+                  example: Senior Software Engineer
+                company:
+                  type: string
+                  example: Tech Corp
+                location:
+                  type: string
+                  example: San Francisco, CA
+                jobUrl:
+                  type: string
+                  format: uri
+                  example: https://linkedin.com/jobs/view/123456
+                platform:
+                  type: string
+                  example: linkedin
+                userId:
+                  type: string
+                  example: demo-user
+                metadata:
+                  type: object
+                  properties:
+                    description:
+                      type: string
+                    salary:
+                      type: string
+                    requirements:
+                      type: array
+                      items:
+                        type: string
+      responses:
+        '201':
+          description: Job created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  job:
+                    $ref: '#/components/schemas/Job'
+                  message:
+                    type: string
+        '400':
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      summary: Get all jobs for a user
+      tags: [Jobs]
+      parameters:
+        - in: query
+          name: userId
+          schema:
+            type: string
+          description: User identifier
+          example: demo-user
+      responses:
+        '200':
+          description: List of jobs retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  count:
+                    type: integer
+                    example: 5
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Job'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/jobs/{id}:
+    get:
+      summary: Get a single job by ID
+      tags: [Jobs]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Job ID (MongoDB ObjectId)
+          example: 507f1f77bcf86cd799439011
+      responses:
+        '200':
+          description: Job retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  job:
+                    $ref: '#/components/schemas/Job'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    patch:
+      summary: Update job status
+      tags: [Jobs]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Job ID (MongoDB ObjectId)
+          example: 507f1f77bcf86cd799439011
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [pending, assigned, applied, response, rejected]
+                  example: applied
+      responses:
+        '200':
+          description: Job updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  job:
+                    $ref: '#/components/schemas/Job'
+        '400':
+          description: Status is required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Delete a job by ID
+      tags: [Jobs]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Job ID (MongoDB ObjectId)
+          example: 507f1f77bcf86cd799439011
+      responses:
+        '200':
+          description: Job deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                    example: Job deleted successfully
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/stats:
+    get:
+      summary: Get job application statistics
+      tags: [Statistics]
+      parameters:
+        - in: query
+          name: userId
+          schema:
+            type: string
+          description: User identifier
+          example: demo-user
+      responses:
+        '200':
+          description: Statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  stats:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        description: Total number of jobs
+                        example: 20
+                      pending:
+                        type: integer
+                        description: Number of pending jobs
+                        example: 5
+                      applied:
+                        type: integer
+                        description: Number of applied jobs
+                        example: 10
+                      response:
+                        type: integer
+                        description: Number of jobs with responses
+                        example: 3
+                      rejected:
+                        type: integer
+                        description: Number of rejected jobs
+                        example: 2
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/signup:
+    post:
+      summary: Register a new user
+      description: Create a new user account and receive a JWT token
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - email
+                - password
+              properties:
+                name:
+                  type: string
+                  description: User's full name
+                  example: John Doe
+                email:
+                  type: string
+                  format: email
+                  description: User's email address
+                  example: john.doe@example.com
+                password:
+                  type: string
+                  format: password
+                  description: User's password (minimum 6 characters)
+                  example: password123
+                  minLength: 6
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: User created successfully
+                  token:
+                    type: string
+                    description: JWT token for authentication
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          description: Validation error or missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: User with email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/login:
+    post:
+      summary: Login user
+      description: Authenticate user with email and password, receive JWT token
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: User's email address
+                  example: john.doe@example.com
+                password:
+                  type: string
+                  format: password
+                  description: User's password
+                  example: password123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Login successful
+                  token:
+                    type: string
+                    description: JWT token for authentication
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid email or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/users/profile:
+    get:
+      summary: Get current user profile
+      description: Retrieve the authenticated user's profile information (requires authentication)
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized - Invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    patch:
+      summary: Update user profile
+      description: Update the authenticated user's profile information (requires authentication)
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: User's full name
+                  example: John Doe Updated
+                email:
+                  type: string
+                  format: email
+                  description: User's email address
+                  example: john.updated@example.com
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Profile updated successfully
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Email already in use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Enter JWT token obtained from /api/auth/signup or /api/auth/login
+
+  schemas:
+    Job:
+      type: object
+      required:
+        - title
+        - company
+        - jobUrl
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for the job (MongoDB ObjectId)
+          example: 507f1f77bcf86cd799439011
+        title:
+          type: string
+          description: Job title
+          example: Senior Software Engineer
+        company:
+          type: string
+          description: Company name
+          example: Tech Corp
+        location:
+          type: string
+          description: Job location
+          example: San Francisco, CA
+        jobUrl:
+          type: string
+          format: uri
+          description: URL to the job posting
+          example: https://linkedin.com/jobs/view/123456
+        platform:
+          type: string
+          description: Platform where job was found
+          example: linkedin
+        status:
+          type: string
+          enum: [pending, assigned, applied, response, rejected]
+          description: Current status of the job application
+          example: pending
+        userId:
+          type: string
+          description: User identifier
+          example: demo-user
+        metadata:
+          type: object
+          description: Additional job metadata
+          properties:
+            description:
+              type: string
+              description: Job description
+              example: We are looking for an experienced software engineer...
+            salary:
+              type: string
+              description: Salary information
+              example: $120,000 - $150,000
+            requirements:
+              type: array
+              items:
+                type: string
+              description: Job requirements
+              example:
+                - 5+ years of experience
+                - Proficiency in JavaScript
+                - Experience with React
+        createdAt:
+          type: string
+          format: date-time
+          description: Date when job was created
+          example: '2024-01-15T10:30:00.000Z'
+        savedAt:
+          type: string
+          format: date-time
+          description: Date when job was saved
+          example: '2024-01-15T10:30:00.000Z'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          description: User ID (MongoDB ObjectId)
+          example: 507f1f77bcf86cd799439011
+        name:
+          type: string
+          description: User's full name
+          example: John Doe
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: john.doe@example.com
+        createdAt:
+          type: string
+          format: date-time
+          description: Date when user was created
+          example: '2024-01-15T10:30:00.000Z'
+        updatedAt:
+          type: string
+          format: date-time
+          description: Date when user was last updated
+          example: '2024-01-15T10:30:00.000Z'
+
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          description: Error message
+          example: Job not found
+        details:
+          type: string
+          description: Additional error details (optional)
+          example: Invalid job ID format
