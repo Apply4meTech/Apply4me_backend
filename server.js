@@ -57,7 +57,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/stats', statsRoutes);
 
-// Serve dashboard .
+// Serve dashboard 
 app.get('/dashboard', (req, res) => {
   res.sendFile(__dirname + '/dashboard.html');
 });
