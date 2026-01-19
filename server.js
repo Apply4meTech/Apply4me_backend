@@ -11,7 +11,14 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 // Middleware
-app.use(cors());
+// CORS configuration - allow requests from frontend
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || '*', // Allow all origins by default, or specify frontend URL
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.static('public')); // Serve static files
 
@@ -55,10 +62,12 @@ app.get('/dashboard', (req, res) => {
   res.sendFile(__dirname + '/dashboard.html');
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📊 API available at http://localhost:${PORT}/api/jobs`);
-  console.log(`📈 Dashboard: http://localhost:${PORT}/dashboard`);
-  console.log(`📚 Swagger API Docs: http://localhost:${PORT}/api-docs`);
+// Start server - listen on all network interfaces (0.0.0.0) to accept external connections
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+  console.log(`📊 API available at http://${HOST}:${PORT}/api/jobs`);
+  console.log(`📈 Dashboard: http://${HOST}:${PORT}/dashboard`);
+  console.log(`📚 Swagger API Docs: http://${HOST}:${PORT}/api-docs`);
+  console.log(`🌐 External access: http://15.134.52.48:${PORT}`);
 });
