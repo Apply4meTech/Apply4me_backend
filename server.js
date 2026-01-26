@@ -49,6 +49,7 @@ const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const jobRoutes = require('./routes/jobRoutes');
 const statsRoutes = require('./routes/statsRoutes');
+const employeeRoutes = require('./routes/employeeRoutes');
 
 // Use Routes
 app.use('/', healthRoutes);
@@ -56,6 +57,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/auth/employee', employeeRoutes);
 
 // Serve dashboard 
 app.get('/dashboard', (req, res) => {
