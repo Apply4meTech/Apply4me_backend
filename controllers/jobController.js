@@ -12,6 +12,9 @@ const createJob = async (req, res) => {
       });
     }
 
+    // Get userId from authenticated user or from request body
+    const userId = req.userId || req.body.userId || 'demo-user';
+
     const job = await Job.create({
       title,
       company,
@@ -19,7 +22,7 @@ const createJob = async (req, res) => {
       jobUrl,
       platform: platform || 'linkedin',
       metadata: metadata || {},
-      userId: req.body.userId || 'demo-user'
+      userId: userId.toString()
     });
 
     res.status(201).json({ 
