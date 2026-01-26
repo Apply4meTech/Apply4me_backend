@@ -13,7 +13,9 @@ const createJob = async (req, res) => {
     }
 
     // Get userId from authenticated user or from request body
-    const userId = req.userId || req.body.userId || 'demo-user';
+    // For customer jobs, use req.userId (from verifyToken middleware)
+    // For jobs created via extension or other means, use req.body.userId
+    const userId = req.userId || req.body.userId || null;
 
     const job = await Job.create({
       title,
@@ -22,7 +24,7 @@ const createJob = async (req, res) => {
       jobUrl,
       platform: platform || 'linkedin',
       metadata: metadata || {},
-      userId: userId.toString()
+      userId: userId ? userId.toString() : null
     });
 
     res.status(201).json({ 

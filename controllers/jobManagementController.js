@@ -1,0 +1,395 @@
+const Job = require('../models/Job');
+const { uploadFileToS3, deleteFileFromS3 } = require('../utils/s3Service');
+
+/**
+ * Update job status
+ * PATCH /api/employee/jobs/:jobId/status
+ */
+const updateJobStatus = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { status } = req.body;
+    const employeeId = req.employeeId;
+    const employee = req.employee;
+
+    // Validate status
+    const validStatuses = ['pending', 'assigned', 'applied', 'response', 'rejected', 'completed'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+      });
+    }
+
+    // Find job
+    const job = await Job.findById(jobId);
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    // If not super admin, check if job is assigned to this employee
+    if (employee.role !== 'super_admin') {
+      if (!job.assignedTo || job.assignedTo.toString() !== employeeId.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'You do not have permission to update this job'
+        });
+      }
+    }
+
+    // Update status
+    const updateData = { 
+      status,
+      updatedAt: Date.now()
+    };
+
+    // If status is 'assigned' and not already assigned, set assignedTo
+    if (status === 'assigned' && !job.assignedTo) {
+      updateData.assignedTo = employeeId;
+      updateData.assignedAt = new Date();
+    }
+
+    const updatedJob = await Job.findByIdAndUpdate(
+      jobId,
+      updateData,
+      { new: true }
+    )
+      .populate('userId', 'name email fullName')
+      .populate('assignedTo', 'name email')
+      .lean();
+
+    res.json({
+      success: true,
+      message: 'Job status updated successfully',
+      job: {
+        id: updatedJob._id,
+        jobTitle: updatedJob.title,
+        company: updatedJob.company,
+        status: updatedJob.status,
+        assignedTo: updatedJob.assignedTo ? updatedJob.assignedTo.name : null
+      }
+    });
+  } catch (error) {
+    console.error('Error updating job status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update job status',
+      details: error.message
+    });
+  }
+};
+
+/**
+ * Update job email data
+ * PATCH /api/employee/jobs/:jobId/email
+ */
+const updateJobEmailData = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { emailAddress, subject, body, sent } = req.body;
+    const employeeId = req.employeeId;
+    const employee = req.employee;
+
+    // Find job
+    const job = await Job.findById(jobId);
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    // If not super admin, check if job is assigned to this employee
+    if (employee.role !== 'super_admin') {
+      if (!job.assignedTo || job.assignedTo.toString() !== employeeId.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'You do not have permission to update this job'
+        });
+      }
+    }
+
+    // Update email data
+    const emailData = {
+      emailAddress: emailAddress || job.emailData?.emailAddress || '',
+      subject: subject || job.emailData?.subject || '',
+      body: body || job.emailData?.body || '',
+      sent: sent !== undefined ? sent : (job.emailData?.sent || false),
+      sentAt: sent === true ? (job.emailData?.sentAt || new Date()) : null
+    };
+
+    const updatedJob = await Job.findByIdAndUpdate(
+      jobId,
+      { 
+        emailData,
+        updatedAt: Date.now()
+      },
+      { new: true }
+    )
+      .populate('userId', 'name email fullName')
+      .populate('assignedTo', 'name email')
+      .lean();
+
+    res.json({
+      success: true,
+      message: 'Email data updated successfully',
+      job: {
+        id: updatedJob._id,
+        emailData: updatedJob.emailData
+      }
+    });
+  } catch (error) {
+    console.error('Error updating job email data:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update email data',
+      details: error.message
+    });
+  }
+};
+
+/**
+ * Upload file for job (resume, cover letter, or screenshot proof)
+ * POST /api/employee/jobs/:jobId/files/:fileType
+ */
+const uploadJobFile = async (req, res) => {
+  try {
+    const { jobId, fileType } = req.params;
+    const employeeId = req.employeeId;
+    const employee = req.employee;
+
+    // Validate file type
+    const validFileTypes = ['resume', 'coverLetter', 'screenshotProof'];
+    if (!validFileTypes.includes(fileType)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid file type. Must be one of: ${validFileTypes.join(', ')}`
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file provided'
+      });
+    }
+
+    // Find job
+    const job = await Job.findById(jobId);
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    // If not super admin, check if job is assigned to this employee
+    if (employee.role !== 'super_admin') {
+      if (!job.assignedTo || job.assignedTo.toString() !== employeeId.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'You do not have permission to update this job'
+        });
+      }
+    }
+
+    // Delete old file from S3 if exists
+    const oldFileKey = job[fileType]?.key;
+    if (oldFileKey) {
+      try {
+        await deleteFileFromS3(oldFileKey);
+      } catch (error) {
+        console.error(`Error deleting old ${fileType}:`, error);
+        // Continue even if deletion fails
+      }
+    }
+
+    // Upload to S3
+    const folder = fileType === 'screenshotProof' ? 'screenshots' : (fileType === 'resume' ? 'resumes' : 'cover-letters');
+    const uploadResult = await uploadFileToS3(
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype,
+      folder
+    );
+
+    // Prepare file details object
+    const fileDetails = {
+      fileName: uploadResult.fileName,
+      fileSize: uploadResult.fileSize,
+      resourceId: uploadResult.resourceId,
+      url: uploadResult.url,
+      key: uploadResult.key,
+      bucket: uploadResult.bucket,
+      mimeType: uploadResult.mimeType,
+      uploadedAt: uploadResult.uploadedAt || new Date()
+    };
+
+    // Update job
+    const updateData = {
+      [fileType]: fileDetails,
+      updatedAt: Date.now()
+    };
+
+    const updatedJob = await Job.findByIdAndUpdate(
+      jobId,
+      updateData,
+      { new: true }
+    ).lean();
+
+    res.json({
+      success: true,
+      message: `${fileType} uploaded successfully`,
+      fileDetails: fileDetails
+    });
+  } catch (error) {
+    console.error('Error uploading job file:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to upload file',
+      details: error.message
+    });
+  }
+};
+
+/**
+ * Delete file from job
+ * DELETE /api/employee/jobs/:jobId/files/:fileType
+ */
+const deleteJobFile = async (req, res) => {
+  try {
+    const { jobId, fileType } = req.params;
+    const employeeId = req.employeeId;
+    const employee = req.employee;
+
+    // Validate file type
+    const validFileTypes = ['resume', 'coverLetter', 'screenshotProof'];
+    if (!validFileTypes.includes(fileType)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid file type. Must be one of: ${validFileTypes.join(', ')}`
+      });
+    }
+
+    // Find job
+    const job = await Job.findById(jobId);
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    // If not super admin, check if job is assigned to this employee
+    if (employee.role !== 'super_admin') {
+      if (!job.assignedTo || job.assignedTo.toString() !== employeeId.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'You do not have permission to update this job'
+        });
+      }
+    }
+
+    // Delete from S3
+    if (job[fileType] && job[fileType].key) {
+      try {
+        await deleteFileFromS3(job[fileType].key);
+      } catch (error) {
+        console.error(`Error deleting ${fileType} from S3:`, error);
+        // Continue to delete from database even if S3 deletion fails
+      }
+    }
+
+    // Delete from database
+    await Job.findByIdAndUpdate(jobId, {
+      $unset: { [fileType]: 1 },
+      updatedAt: Date.now()
+    });
+
+    res.json({
+      success: true,
+      message: `${fileType} deleted successfully`
+    });
+  } catch (error) {
+    console.error('Error deleting job file:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete file',
+      details: error.message
+    });
+  }
+};
+
+/**
+ * Delete job
+ * DELETE /api/employee/jobs/:jobId
+ */
+const deleteJob = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const employeeId = req.employeeId;
+    const employee = req.employee;
+
+    // Find job
+    const job = await Job.findById(jobId);
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    // If not super admin, check if job is assigned to this employee
+    if (employee.role !== 'super_admin') {
+      if (!job.assignedTo || job.assignedTo.toString() !== employeeId.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'You do not have permission to delete this job'
+        });
+      }
+    }
+
+    // Delete files from S3
+    const filesToDelete = ['resume', 'coverLetter', 'screenshotProof'];
+    for (const fileType of filesToDelete) {
+      if (job[fileType] && job[fileType].key) {
+        try {
+          await deleteFileFromS3(job[fileType].key);
+        } catch (error) {
+          console.error(`Error deleting ${fileType} from S3:`, error);
+        }
+      }
+    }
+
+    // Delete job
+    await Job.findByIdAndDelete(jobId);
+
+    res.json({
+      success: true,
+      message: 'Job deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting job:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete job',
+      details: error.message
+    });
+  }
+};
+
+module.exports = {
+  updateJobStatus,
+  updateJobEmailData,
+  uploadJobFile,
+  deleteJobFile,
+  deleteJob
+};
