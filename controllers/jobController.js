@@ -1,22 +1,25 @@
 const Job = require('../models/Job');
+const User = require('../models/User');
+const Settings = require('../models/Settings');
 const mongoose = require('mongoose');
+const { detectPlatformFromUrl } = require('../utils/platformDetector');
+const { autoAssignJob } = require('../utils/autoAssign');
 
-// Create job (from Chrome extension)
+// Create job (from Chrome extension, manual URL submission, or custom job)
 const createJob = async (req, res) => {
   try {
     const { title, company, location, jobUrl, platform, metadata, userId: bodyUserId } = req.body;
 
-    if (!title || !company || !jobUrl) {
+    // Validate required fields - jobUrl is now optional for custom jobs
+    if (!title || !company) {
       return res.status(400).json({ 
         success: false, 
-        error: 'Missing required fields: title, company, jobUrl' 
+        error: 'Missing required fields: title and company are required' 
       });
     }
 
-    // Get userId from authenticated user or from request body
-    // For customer jobs, use req.userId (from verifyToken middleware)
-    // For jobs created via extension or other means, use req.body.userId
-    // Handle "demo-user" by setting to null (userId is optional)
+    // Get userId from authenticated user (from optionalAuth middleware) or from request body
+    // Priority: req.userId (from token) > bodyUserId > try to match by email > null
     let userId = req.userId || bodyUserId || null;
     
     // If userId is "demo-user" or not a valid ObjectId, set to null
@@ -43,9 +46,38 @@ const createJob = async (req, res) => {
         delete cleanedUserInfo[key];
       }
     });
+
+    // If userId is still null but we have an email in userInfo, try to find user by email
+    if (!userId && cleanedUserInfo.email) {
+      try {
+        const userByEmail = await User.findOne({ email: cleanedUserInfo.email.toLowerCase() });
+        if (userByEmail) {
+          userId = userByEmail._id;
+          console.log(`🔗 Linked job to user by email: ${cleanedUserInfo.email}`);
+        }
+      } catch (emailError) {
+        console.error('Error finding user by email:', emailError);
+        // Continue without userId if lookup fails
+      }
+    }
+
+    // If userId is still null but req.user exists (from token), use it
+    if (!userId && req.user && req.user._id) {
+      userId = req.user._id;
+      console.log(`🔗 Using userId from authenticated user: ${userId}`);
+    }
     
+    // Detect platform from URL if not provided
+    let detectedPlatform = platform;
+    if (!detectedPlatform && jobUrl) {
+      detectedPlatform = detectPlatformFromUrl(jobUrl);
+    } else if (!detectedPlatform) {
+      detectedPlatform = 'custom'; // Default for jobs without URL
+    }
+
     // Log user info for tracking
-    console.log('👤 LinkedIn user info received:', {
+    console.log('👤 Job creation request:', {
+      userId: userId || 'null',
       name: cleanedUserInfo.name || 'N/A',
       profileUrl: cleanedUserInfo.profileUrl || 'N/A',
       email: cleanedUserInfo.email || 'N/A',
@@ -53,6 +85,9 @@ const createJob = async (req, res) => {
       jobTitle: title,
       company: company,
       location: location || 'N/A',
+      platform: detectedPlatform,
+      hasUrl: !!jobUrl,
+      hasToken: !!req.userId,
       rawUserInfo: userInfo
     });
 
@@ -60,19 +95,58 @@ const createJob = async (req, res) => {
       title,
       company,
       location: location || '',
-      jobUrl,
-      platform: platform || 'linkedin',
+      jobUrl: jobUrl || undefined, // Only include if provided
+      platform: detectedPlatform,
       metadata: metadata || {},
       userId: userId || null,
       userInfo: Object.keys(cleanedUserInfo).length > 0 ? cleanedUserInfo : {}
     });
     
-    console.log('✅ Job created with userInfo:', job.userInfo);
+    console.log('✅ Job created:', {
+      id: job._id,
+      title: job.title,
+      company: job.company,
+      platform: job.platform,
+      userId: job.userId || 'null',
+      hasUrl: !!job.jobUrl
+    });
+
+    // Auto-assign job if enabled
+    let assignedEmployee = null;
+    try {
+      const settings = await Settings.getSettings();
+      if (settings.autoAssignEnabled) {
+        const assignmentResult = await autoAssignJob(job._id);
+        if (assignmentResult) {
+          assignedEmployee = assignmentResult.employee;
+          // Refresh job to get updated assignment info
+          const updatedJob = await Job.findById(job._id)
+            .populate('assignedTo', 'name email')
+            .lean();
+          
+          return res.status(201).json({ 
+            success: true, 
+            job: updatedJob,
+            message: 'Job saved and auto-assigned successfully',
+            autoAssigned: true,
+            assignedTo: {
+              id: assignedEmployee._id,
+              name: assignedEmployee.name,
+              email: assignedEmployee.email
+            }
+          });
+        }
+      }
+    } catch (autoAssignError) {
+      console.error('Error in auto-assignment:', autoAssignError);
+      // Continue with normal response even if auto-assign fails
+    }
 
     res.status(201).json({ 
       success: true, 
       job,
-      message: 'Job saved successfully'
+      message: 'Job saved successfully',
+      autoAssigned: false
     });
   } catch (error) {
     console.error('Error creating job:', error);

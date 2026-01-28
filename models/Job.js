@@ -5,8 +5,8 @@ const JobSchema = new mongoose.Schema({
   title: { type: String, required: true },
   company: { type: String, required: true },
   location: { type: String, default: '' },
-  jobUrl: { type: String, required: true },
-  platform: { type: String, default: 'linkedin' },
+  jobUrl: { type: String, required: false }, // Optional for custom jobs
+  platform: { type: String, default: 'custom' }, // Default to 'custom' instead of 'linkedin'
   status: { 
     type: String, 
     enum: ['pending', 'assigned', 'applied', 'response', 'rejected', 'completed'],

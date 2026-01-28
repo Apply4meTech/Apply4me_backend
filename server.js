@@ -57,6 +57,7 @@ const dashboardRoutes = require('./routes/dashboardRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const applicationRoutes = require('./routes/applicationRoutes');
 const employeeDashboardRoutes = require('./routes/employeeDashboardRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
 
 // Use Routes
 app.use('/', healthRoutes);
@@ -71,6 +72,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/employee', employeeDashboardRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Serve dashboard 
 app.get('/dashboard', (req, res) => {

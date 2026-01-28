@@ -1,4 +1,5 @@
 const Job = require('../models/Job');
+const User = require('../models/User');
 
 /**
  * Get all applications for user with filters and pagination
@@ -17,29 +18,44 @@ const getApplications = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    // Build query
-    const query = {
-      userId: userId.toString()
+    // Get user email for matching jobs by email
+    const user = await User.findById(userId).select('email');
+    const userEmail = user?.email?.toLowerCase();
+
+    // Build base query to find jobs by userId OR by userInfo.email
+    const baseUserQuery = {
+      $or: [
+        { userId: userId.toString() },
+        ...(userEmail ? [{ 'userInfo.email': userEmail }] : [])
+      ]
     };
+
+    // Build query array for $and
+    const queryConditions = [baseUserQuery];
 
     // Filter by status
     if (status && status !== 'all') {
-      query.status = status;
+      queryConditions.push({ status });
     }
 
     // Filter by platform
     if (platform && platform !== 'all') {
-      query.platform = platform;
+      queryConditions.push({ platform });
     }
 
     // Search in title, company, location
     if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { company: { $regex: search, $options: 'i' } },
-        { location: { $regex: search, $options: 'i' } }
-      ];
+      queryConditions.push({
+        $or: [
+          { title: { $regex: search, $options: 'i' } },
+          { company: { $regex: search, $options: 'i' } },
+          { location: { $regex: search, $options: 'i' } }
+        ]
+      });
     }
+
+    // Build final query
+    const query = queryConditions.length > 1 ? { $and: queryConditions } : queryConditions[0];
 
     // Calculate pagination
     const pageNum = parseInt(page);
@@ -58,7 +74,7 @@ const getApplications = async (req, res) => {
       .sort(sort)
       .skip(skip)
       .limit(limitNum)
-      .select('title company location jobUrl platform status createdAt metadata')
+      .select('title company location jobUrl platform status createdAt metadata resume coverLetter screenshotProof')
       .lean();
 
     // Format applications
@@ -67,13 +83,31 @@ const getApplications = async (req, res) => {
       jobName: app.title,
       company: app.company,
       location: app.location,
-      link: app.jobUrl,
+      link: app.jobUrl || null, // Handle optional jobUrl
       status: app.status,
       source: app.platform || 'Unknown',
       date: app.createdAt,
       description: app.metadata?.description,
       salary: app.metadata?.salary,
-      requirements: app.metadata?.requirements || []
+      requirements: app.metadata?.requirements || [],
+      // Include file information
+      files: {
+        resume: app.resume?.url ? {
+          url: app.resume.url,
+          fileName: app.resume.fileName,
+          uploadedAt: app.resume.uploadedAt
+        } : null,
+        coverLetter: app.coverLetter?.url ? {
+          url: app.coverLetter.url,
+          fileName: app.coverLetter.fileName,
+          uploadedAt: app.coverLetter.uploadedAt
+        } : null,
+        screenshotProof: app.screenshotProof?.url ? {
+          url: app.screenshotProof.url,
+          fileName: app.screenshotProof.fileName,
+          uploadedAt: app.screenshotProof.uploadedAt
+        } : null
+      }
     }));
 
     res.json({

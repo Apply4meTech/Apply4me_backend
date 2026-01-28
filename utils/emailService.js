@@ -110,8 +110,100 @@ const sendPasswordResetSuccessEmail = async (email) => {
   }
 };
 
+// Send job application email
+const sendJobApplicationEmail = async (toEmail, subject, body, attachments = []) => {
+  try {
+    const transporter = createTransporter();
+    const https = require('https');
+    const http = require('http');
+    
+    // Process attachments - download from URLs if needed
+    const processedAttachments = await Promise.all(
+      attachments.map(async (attachment) => {
+        // If attachment has a URL (S3 or other), download it
+        if (attachment.path && (attachment.path.startsWith('http://') || attachment.path.startsWith('https://'))) {
+          try {
+            const fileBuffer = await new Promise((resolve, reject) => {
+              const protocol = attachment.path.startsWith('https://') ? https : http;
+              protocol.get(attachment.path, (response) => {
+                if (response.statusCode !== 200) {
+                  reject(new Error(`Failed to download file: ${response.statusCode}`));
+                  return;
+                }
+                const chunks = [];
+                response.on('data', (chunk) => chunks.push(chunk));
+                response.on('end', () => resolve(Buffer.concat(chunks)));
+                response.on('error', reject);
+              }).on('error', reject);
+            });
+            
+            return {
+              filename: attachment.filename,
+              content: fileBuffer
+            };
+          } catch (downloadError) {
+            console.error(`Error downloading attachment ${attachment.filename}:`, downloadError);
+            // Return original attachment if download fails (nodemailer might handle URL)
+            return attachment;
+          }
+        }
+        // If it's already a local path or buffer, return as-is
+        return attachment;
+      })
+    );
+    
+    const mailOptions = {
+      from: `"Apply For Me" <${process.env.EMAIL_USER || 'ayush21singla@gmail.com'}>`,
+      to: toEmail,
+      subject: subject || 'Job Application - Apply For Me',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Job Application</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #2463eb; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+            <h1 style="color: white; margin: 0;">Apply For Me</h1>
+          </div>
+          <div style="background-color: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
+            <h2 style="color: #111318; margin-top: 0;">Job Application</h2>
+            <div style="white-space: pre-wrap; color: #0f172a; margin: 20px 0;">
+              ${body || 'No message content provided.'}
+            </div>
+            ${processedAttachments.length > 0 ? `
+              <div style="margin-top: 20px; padding: 15px; background-color: #eff6ff; border-radius: 6px; border-left: 4px solid #2463eb;">
+                <p style="margin: 0; color: #0f172a; font-weight: 600;">Attachments:</p>
+                <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #64748b;">
+                  ${processedAttachments.map(att => `<li>${att.filename || 'File'}</li>`).join('')}
+                </ul>
+              </div>
+            ` : ''}
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;">
+            <p style="color: #94a3b8; font-size: 12px; margin: 0;">
+              © ${new Date().getFullYear()} Apply For Me Inc. All rights reserved.
+            </p>
+          </div>
+        </body>
+        </html>
+      `,
+      attachments: processedAttachments.length > 0 ? processedAttachments : undefined
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Job application email sent:', info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('Error sending job application email:', error);
+    throw new Error('Failed to send email: ' + error.message);
+  }
+};
+
 module.exports = {
   sendPasswordResetEmail,
-  sendPasswordResetSuccessEmail
+  sendPasswordResetSuccessEmail,
+  sendJobApplicationEmail
 };
 

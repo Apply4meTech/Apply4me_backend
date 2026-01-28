@@ -84,13 +84,14 @@ const updateJobStatus = async (req, res) => {
 };
 
 /**
- * Update job email data
+ * Update job email data and optionally send email
  * PATCH /api/employee/jobs/:jobId/email
+ * Body: { emailAddress, subject, body, sent, sendEmail: true/false }
  */
 const updateJobEmailData = async (req, res) => {
   try {
     const { jobId } = req.params;
-    const { emailAddress, subject, body, sent } = req.body;
+    const { emailAddress, subject, body, sent, sendEmail } = req.body;
     const employeeId = req.employeeId;
     const employee = req.employee;
 
@@ -114,13 +115,90 @@ const updateJobEmailData = async (req, res) => {
       }
     }
 
+    // Prepare email data
+    const finalEmailAddress = emailAddress || job.emailData?.emailAddress || '';
+    const finalSubject = subject || job.emailData?.subject || '';
+    const finalBody = body || job.emailData?.body || '';
+    const shouldSend = sendEmail === true;
+    const isSent = sent !== undefined ? sent : (shouldSend ? true : (job.emailData?.sent || false));
+
+    // If sendEmail is true, actually send the email
+    let emailSent = false;
+    let emailError = null;
+    
+    if (shouldSend && finalEmailAddress) {
+      try {
+        const { sendJobApplicationEmail } = require('../utils/emailService');
+        const { getSignedUrl } = require('../utils/s3Service');
+        
+        // Prepare attachments from job files
+        // Use signed URLs for S3 files or direct URLs if public
+        const attachments = [];
+        
+        if (job.resume?.url) {
+          let attachmentUrl = job.resume.url;
+          // If file is in S3 and has a key, generate signed URL
+          if (job.resume.key && !job.resume.url.includes('http')) {
+            try {
+              attachmentUrl = await getSignedUrl(job.resume.key, 3600); // 1 hour expiry
+            } catch (signedUrlError) {
+              console.error('Error generating signed URL for resume:', signedUrlError);
+              // Fall back to original URL
+            }
+          }
+          attachments.push({
+            filename: job.resume.fileName || 'resume.pdf',
+            path: attachmentUrl
+          });
+        }
+        
+        if (job.coverLetter?.url) {
+          let attachmentUrl = job.coverLetter.url;
+          if (job.coverLetter.key && !job.coverLetter.url.includes('http')) {
+            try {
+              attachmentUrl = await getSignedUrl(job.coverLetter.key, 3600);
+            } catch (signedUrlError) {
+              console.error('Error generating signed URL for cover letter:', signedUrlError);
+            }
+          }
+          attachments.push({
+            filename: job.coverLetter.fileName || 'cover-letter.pdf',
+            path: attachmentUrl
+          });
+        }
+        
+        if (job.screenshotProof?.url) {
+          let attachmentUrl = job.screenshotProof.url;
+          if (job.screenshotProof.key && !job.screenshotProof.url.includes('http')) {
+            try {
+              attachmentUrl = await getSignedUrl(job.screenshotProof.key, 3600);
+            } catch (signedUrlError) {
+              console.error('Error generating signed URL for screenshot:', signedUrlError);
+            }
+          }
+          attachments.push({
+            filename: job.screenshotProof.fileName || 'screenshot-proof.png',
+            path: attachmentUrl
+          });
+        }
+
+        await sendJobApplicationEmail(finalEmailAddress, finalSubject, finalBody, attachments);
+        emailSent = true;
+        console.log(`✅ Email sent successfully to ${finalEmailAddress} for job ${job.title} at ${job.company}`);
+      } catch (emailSendError) {
+        console.error('Error sending email:', emailSendError);
+        emailError = emailSendError.message;
+        // Continue to save email data even if sending fails
+      }
+    }
+
     // Update email data
     const emailData = {
-      emailAddress: emailAddress || job.emailData?.emailAddress || '',
-      subject: subject || job.emailData?.subject || '',
-      body: body || job.emailData?.body || '',
-      sent: sent !== undefined ? sent : (job.emailData?.sent || false),
-      sentAt: sent === true ? (job.emailData?.sentAt || new Date()) : null
+      emailAddress: finalEmailAddress,
+      subject: finalSubject,
+      body: finalBody,
+      sent: emailSent ? true : isSent,
+      sentAt: emailSent ? new Date() : (isSent ? (job.emailData?.sentAt || new Date()) : null)
     };
 
     const updatedJob = await Job.findByIdAndUpdate(
@@ -135,9 +213,24 @@ const updateJobEmailData = async (req, res) => {
       .populate('assignedTo', 'name email')
       .lean();
 
+    if (shouldSend && !emailSent) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to send email',
+        details: emailError || 'Email sending failed',
+        job: {
+          id: updatedJob._id,
+          emailData: updatedJob.emailData
+        }
+      });
+    }
+
     res.json({
       success: true,
-      message: 'Email data updated successfully',
+      message: shouldSend && emailSent 
+        ? 'Email sent successfully' 
+        : 'Email data updated successfully',
+      emailSent: emailSent,
       job: {
         id: updatedJob._id,
         emailData: updatedJob.emailData
