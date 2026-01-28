@@ -1,9 +1,10 @@
 const Job = require('../models/Job');
+const mongoose = require('mongoose');
 
 // Create job (from Chrome extension)
 const createJob = async (req, res) => {
   try {
-    const { title, company, location, jobUrl, platform, metadata } = req.body;
+    const { title, company, location, jobUrl, platform, metadata, userId: bodyUserId } = req.body;
 
     if (!title || !company || !jobUrl) {
       return res.status(400).json({ 
@@ -15,7 +16,45 @@ const createJob = async (req, res) => {
     // Get userId from authenticated user or from request body
     // For customer jobs, use req.userId (from verifyToken middleware)
     // For jobs created via extension or other means, use req.body.userId
-    const userId = req.userId || req.body.userId || null;
+    // Handle "demo-user" by setting to null (userId is optional)
+    let userId = req.userId || bodyUserId || null;
+    
+    // If userId is "demo-user" or not a valid ObjectId, set to null
+    if (userId === 'demo-user' || userId === '') {
+      userId = null;
+    } else if (userId && !mongoose.Types.ObjectId.isValid(userId)) {
+      // If it's not a valid ObjectId, set to null
+      userId = null;
+    }
+
+    const userInfo = req.body.userInfo || {};
+    
+    // Clean up userInfo - remove empty strings and ensure proper structure
+    const cleanedUserInfo = {
+      name: (userInfo.name || '').trim() || undefined,
+      profileUrl: (userInfo.profileUrl || '').trim() || undefined,
+      email: (userInfo.email || '').trim() || undefined,
+      phone: (userInfo.phone || '').trim() || undefined
+    };
+    
+    // Remove undefined fields (MongoDB will handle empty strings, but undefined is cleaner)
+    Object.keys(cleanedUserInfo).forEach(key => {
+      if (cleanedUserInfo[key] === undefined || cleanedUserInfo[key] === '') {
+        delete cleanedUserInfo[key];
+      }
+    });
+    
+    // Log user info for tracking
+    console.log('👤 LinkedIn user info received:', {
+      name: cleanedUserInfo.name || 'N/A',
+      profileUrl: cleanedUserInfo.profileUrl || 'N/A',
+      email: cleanedUserInfo.email || 'N/A',
+      phone: cleanedUserInfo.phone || 'N/A',
+      jobTitle: title,
+      company: company,
+      location: location || 'N/A',
+      rawUserInfo: userInfo
+    });
 
     const job = await Job.create({
       title,
@@ -24,8 +63,11 @@ const createJob = async (req, res) => {
       jobUrl,
       platform: platform || 'linkedin',
       metadata: metadata || {},
-      userId: userId ? userId.toString() : null
+      userId: userId || null,
+      userInfo: Object.keys(cleanedUserInfo).length > 0 ? cleanedUserInfo : {}
     });
+    
+    console.log('✅ Job created with userInfo:', job.userInfo);
 
     res.status(201).json({ 
       success: true, 
@@ -45,8 +87,20 @@ const createJob = async (req, res) => {
 // Get all jobs
 const getAllJobs = async (req, res) => {
   try {
-    const userId = req.query.userId || 'demo-user';
-    const jobs = await Job.find({ userId })
+    let userId = req.query.userId || 'demo-user';
+    
+    // Handle "demo-user" by querying for null userId
+    if (userId === 'demo-user' || userId === '') {
+      userId = null;
+    } else if (userId && !mongoose.Types.ObjectId.isValid(userId)) {
+      // If it's not a valid ObjectId, treat as demo
+      userId = null;
+    }
+    
+    // Build query - if userId is null, find jobs with null userId
+    const query = userId ? { userId } : { userId: null };
+    
+    const jobs = await Job.find(query)
       .sort({ createdAt: -1 })
       .limit(100);
     
@@ -152,10 +206,93 @@ const deleteJob = async (req, res) => {
   }
 };
 
+// Get jobs by user email or phone
+const getJobsByUserInfo = async (req, res) => {
+  try {
+    const { email, phone } = req.query;
+    
+    if (!email && !phone) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Please provide email or phone query parameter' 
+      });
+    }
+    
+    const query = {};
+    if (email) {
+      query['userInfo.email'] = email;
+    }
+    if (phone) {
+      query['userInfo.phone'] = phone;
+    }
+    
+    const jobs = await Job.find(query)
+      .sort({ createdAt: -1 })
+      .limit(100);
+    
+    res.json({ 
+      success: true, 
+      count: jobs.length,
+      jobs 
+    });
+  } catch (error) {
+    console.error('Error fetching jobs by user info:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch jobs' 
+    });
+  }
+};
+
+// Get all unique users (email/phone combinations)
+const getAllUsers = async (req, res) => {
+  try {
+    const jobs = await Job.find({
+      $or: [
+        { 'userInfo.email': { $exists: true, $ne: '' } },
+        { 'userInfo.phone': { $exists: true, $ne: '' } }
+      ]
+    }).select('userInfo createdAt');
+    
+    // Extract unique users
+    const usersMap = new Map();
+    jobs.forEach(job => {
+      if (job.userInfo && (job.userInfo.email || job.userInfo.phone)) {
+        const key = `${job.userInfo.email || ''}_${job.userInfo.phone || ''}`;
+        if (!usersMap.has(key)) {
+          usersMap.set(key, {
+            email: job.userInfo.email || null,
+            phone: job.userInfo.phone || null,
+            firstSeen: job.createdAt,
+            jobCount: 0
+          });
+        }
+        usersMap.get(key).jobCount++;
+      }
+    });
+    
+    const users = Array.from(usersMap.values());
+    
+    res.json({ 
+      success: true, 
+      count: users.length,
+      users 
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch users' 
+    });
+  }
+};
+
 module.exports = {
   createJob,
   getAllJobs,
   getJobById,
   updateJobStatus,
-  deleteJob
+  deleteJob,
+  getJobsByUserInfo,
+  getAllUsers
 };

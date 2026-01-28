@@ -386,10 +386,166 @@ const deleteJob = async (req, res) => {
   }
 };
 
+/**
+ * Assign job to employee (super admin only)
+ * PATCH /api/employee/jobs/:jobId/assign
+ */
+const assignJobToEmployee = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { employeeId } = req.body;
+    const employee = req.employee;
+
+    // Only super admin can assign jobs
+    if (employee.role !== 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Only super admin can assign jobs to employees'
+      });
+    }
+
+    // Validate employeeId
+    if (!employeeId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Employee ID is required'
+      });
+    }
+
+    // Find job
+    const job = await Job.findById(jobId);
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    // Verify employee exists
+    const Employee = require('../models/Employee');
+    const assignedEmployee = await Employee.findById(employeeId);
+    
+    if (!assignedEmployee) {
+      return res.status(404).json({
+        success: false,
+        error: 'Employee not found'
+      });
+    }
+
+    // Update job assignment
+    const updateData = {
+      assignedTo: employeeId,
+      assignedAt: new Date(),
+      status: job.status === 'pending' ? 'assigned' : job.status, // Auto-update status if pending
+      updatedAt: Date.now()
+    };
+
+    const updatedJob = await Job.findByIdAndUpdate(
+      jobId,
+      updateData,
+      { new: true }
+    )
+      .populate('userId', 'name email fullName')
+      .populate('assignedTo', 'name email')
+      .lean();
+
+    res.json({
+      success: true,
+      message: 'Job assigned to employee successfully',
+      job: {
+        id: updatedJob._id,
+        jobTitle: updatedJob.title,
+        company: updatedJob.company,
+        status: updatedJob.status,
+        assignedTo: updatedJob.assignedTo ? {
+          id: updatedJob.assignedTo._id,
+          name: updatedJob.assignedTo.name,
+          email: updatedJob.assignedTo.email
+        } : null
+      }
+    });
+  } catch (error) {
+    console.error('Error assigning job to employee:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to assign job to employee',
+      details: error.message
+    });
+  }
+};
+
+/**
+ * Unassign job from employee (super admin only)
+ * PATCH /api/employee/jobs/:jobId/unassign
+ */
+const unassignJobFromEmployee = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const employee = req.employee;
+
+    // Only super admin can unassign jobs
+    if (employee.role !== 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Only super admin can unassign jobs from employees'
+      });
+    }
+
+    // Find job
+    const job = await Job.findById(jobId);
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    // Update job to remove assignment
+    const updateData = {
+      assignedTo: null,
+      assignedAt: null,
+      status: 'pending', // Reset to pending when unassigned
+      updatedAt: Date.now()
+    };
+
+    const updatedJob = await Job.findByIdAndUpdate(
+      jobId,
+      updateData,
+      { new: true }
+    )
+      .populate('userId', 'name email fullName')
+      .populate('assignedTo', 'name email')
+      .lean();
+
+    res.json({
+      success: true,
+      message: 'Job unassigned successfully',
+      job: {
+        id: updatedJob._id,
+        jobTitle: updatedJob.title,
+        company: updatedJob.company,
+        status: updatedJob.status,
+        assignedTo: null
+      }
+    });
+  } catch (error) {
+    console.error('Error unassigning job from employee:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to unassign job from employee',
+      details: error.message
+    });
+  }
+};
+
 module.exports = {
   updateJobStatus,
   updateJobEmailData,
   uploadJobFile,
   deleteJobFile,
-  deleteJob
+  deleteJob,
+  assignJobToEmployee,
+  unassignJobFromEmployee
 };

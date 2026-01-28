@@ -32,6 +32,239 @@
     console.log('[Job Manager] Button created and added to page');
   }
 
+  // Extract LinkedIn user information
+  function extractLinkedInUserInfo() {
+    const userInfo = {
+      name: '',
+      profileUrl: '',
+      email: '',
+      phone: ''
+    };
+
+    try {
+      console.log('[Job Manager] Starting LinkedIn user info extraction...');
+      
+      // Method 1: Try to get from global navigation (most reliable)
+      // LinkedIn uses various selectors for the profile link
+      const navSelectors = [
+        'nav[aria-label="Main navigation"]',
+        'nav.global-nav',
+        'header nav',
+        'nav',
+        '[role="navigation"]'
+      ];
+      
+      let globalNav = null;
+      for (const selector of navSelectors) {
+        globalNav = document.querySelector(selector);
+        if (globalNav) break;
+      }
+      
+      if (globalNav) {
+        console.log('[Job Manager] Found navigation, searching for profile link...');
+        // Look for profile link in nav - try multiple patterns
+        const profileLinkSelectors = [
+          'a[href*="/in/"]:not([href*="/jobs"]):not([href*="/company"]):not([href*="/search"])',
+          'a[data-control-name="nav.settings_signout"]',
+          'a[href^="/in/"]',
+          '.global-nav__me-photo',
+          '.global-nav__primary-link-me a'
+        ];
+        
+        let profileLink = null;
+        for (const selector of profileLinkSelectors) {
+          profileLink = globalNav.querySelector(selector);
+          if (profileLink && profileLink.href && profileLink.href.includes('/in/')) {
+            break;
+          }
+        }
+        
+        if (profileLink && profileLink.href) {
+          // Get profile URL
+          const href = profileLink.href;
+          if (href.includes('/in/')) {
+            userInfo.profileUrl = href.split('?')[0].split('#')[0];
+            console.log('[Job Manager] Found profile URL:', userInfo.profileUrl);
+          }
+          
+          // Try to get name from the link or nearby elements
+          let nameText = profileLink.innerText?.trim() || 
+                        profileLink.getAttribute('aria-label')?.replace(/Profile of\s*/i, '')?.replace(/View\s+profile\s+of\s*/i, '')?.trim() ||
+                        profileLink.textContent?.trim() ||
+                        profileLink.title?.trim();
+          
+          // If not found, look in parent or sibling elements
+          if (!nameText || nameText.length < 2) {
+            const parent = profileLink.closest('div, li, span, button');
+            if (parent) {
+              // Try multiple child selectors
+              const nameSelectors = ['span', 'div', 'h3', 'h4', 'p', '[class*="name"]'];
+              for (const sel of nameSelectors) {
+                const nameEl = parent.querySelector(sel);
+                if (nameEl) {
+                  const text = nameEl.innerText?.trim() || nameEl.textContent?.trim();
+                  if (text && text.length > 1 && text.length < 100) {
+                    nameText = text;
+                    break;
+                  }
+                }
+              }
+              // If still not found, try parent's text
+              if (!nameText || nameText.length < 2) {
+                nameText = parent.innerText?.trim() || parent.textContent?.trim();
+              }
+            }
+          }
+          
+          if (nameText && nameText.length > 1 && nameText.length < 100) {
+            // Filter out common non-name text
+            const lowerText = nameText.toLowerCase();
+            if (!lowerText.includes('profile') && 
+                !lowerText.includes('sign out') &&
+                !lowerText.includes('settings') &&
+                !lowerText.includes('view profile') &&
+                !lowerText.includes('me') &&
+                !lowerText.match(/^\d+$/) && // Not just numbers
+                (nameText.match(/^[A-Z][a-z]+\s+[A-Z]/) || nameText.match(/^[A-Z][a-z]+/))) { // Should have proper name format
+              userInfo.name = nameText;
+              console.log('[Job Manager] Found name:', userInfo.name);
+            }
+          }
+        }
+      }
+
+      // Method 2: Try to get from profile dropdown/menu area
+      if (!userInfo.name || !userInfo.profileUrl) {
+        console.log('[Job Manager] Trying method 2: profile dropdown...');
+        const profileSelectors = [
+          '.global-nav__me',
+          '[data-control-name="nav.settings_signout"]',
+          'button[aria-label*="Profile"]',
+          'a[aria-label*="Profile"]',
+          '[aria-label*="View profile"]',
+          '.global-nav__me-photo'
+        ];
+        
+        let profileElement = null;
+        for (const selector of profileSelectors) {
+          profileElement = document.querySelector(selector);
+          if (profileElement) break;
+        }
+        
+        if (profileElement) {
+          // Try to get name from nearby elements
+          const container = profileElement.closest('div, li, button, a');
+          if (container) {
+            // Look for name in various places
+            const nameSelectors = [
+              'h3', 'h4', 'span[class*="name"]', 
+              'div[class*="name"]', 'span', 'div',
+              '[aria-label*="profile"]'
+            ];
+            
+            for (const sel of nameSelectors) {
+              const nameEl = container.querySelector(sel);
+              if (nameEl) {
+                const nameText = nameEl.innerText?.trim() || 
+                                nameEl.textContent?.trim() ||
+                                nameEl.getAttribute('aria-label')?.replace(/View\s+profile\s+of\s*/i, '')?.trim();
+                if (nameText && nameText.length > 1 && nameText.length < 100 &&
+                    !nameText.toLowerCase().includes('profile') &&
+                    !nameText.toLowerCase().includes('sign out') &&
+                    !nameText.match(/^\d+$/)) {
+                  if (!userInfo.name) {
+                    userInfo.name = nameText;
+                    console.log('[Job Manager] Found name from dropdown:', userInfo.name);
+                  }
+                  break;
+                }
+              }
+            }
+            
+            // Try to get profile URL
+            const link = container.querySelector('a[href*="/in/"]') || container.closest('a[href*="/in/"]');
+            if (link && link.href && !userInfo.profileUrl) {
+              userInfo.profileUrl = link.href.split('?')[0].split('#')[0];
+              console.log('[Job Manager] Found profile URL from dropdown:', userInfo.profileUrl);
+            }
+          }
+        }
+      }
+
+      // Method 3: Try to get from any visible profile link (fallback)
+      if (!userInfo.profileUrl) {
+        console.log('[Job Manager] Trying method 3: searching all profile links...');
+        const allProfileLinks = document.querySelectorAll('a[href*="/in/"]:not([href*="/jobs"]):not([href*="/company"]):not([href*="/search"])');
+        for (const link of allProfileLinks) {
+          const href = link.href;
+          // Check if it's a user profile (not a company or job)
+          if (href.match(/\/in\/[^\/]+\/?$/) && !href.includes('?trk=job') && !href.includes('/in/in/')) {
+            userInfo.profileUrl = href.split('?')[0].split('#')[0];
+            console.log('[Job Manager] Found profile URL from all links:', userInfo.profileUrl);
+            
+            // Try to get name from link text
+            const nameText = link.innerText?.trim() || 
+                           link.textContent?.trim() ||
+                           link.getAttribute('aria-label')?.replace(/View\s+profile\s+of\s*/i, '')?.trim();
+            if (nameText && nameText.length > 1 && nameText.length < 100 &&
+                !nameText.toLowerCase().includes('profile') &&
+                !nameText.match(/^\d+$/) &&
+                !userInfo.name) {
+              userInfo.name = nameText;
+              console.log('[Job Manager] Found name from link:', userInfo.name);
+            }
+            break;
+          }
+        }
+      }
+
+      // Method 4: Try to extract from page metadata or window object
+      if (!userInfo.name || !userInfo.profileUrl) {
+        console.log('[Job Manager] Trying method 4: window state...');
+        try {
+          // Try various window object paths
+          const possiblePaths = [
+            window.__INITIAL_STATE__,
+            window.__APP_STATE__,
+            window.linkedin,
+            window.INITIAL_STATE
+          ];
+          
+          for (const state of possiblePaths) {
+            if (state) {
+              // Try to find user info in the state
+              const userData = state.default?.profileData || 
+                             state.profileData || 
+                             state.user ||
+                             state.default?.user ||
+                             state.included?.find(item => item.entityUrn?.includes('profile'));
+              
+              if (userData) {
+                if (userData.firstName && userData.lastName && !userInfo.name) {
+                  userInfo.name = `${userData.firstName} ${userData.lastName}`;
+                  console.log('[Job Manager] Found name from state:', userInfo.name);
+                }
+                if (userData.publicIdentifier && !userInfo.profileUrl) {
+                  userInfo.profileUrl = `https://www.linkedin.com/in/${userData.publicIdentifier}`;
+                  console.log('[Job Manager] Found profile URL from state:', userInfo.profileUrl);
+                }
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          console.log('[Job Manager] Could not access window state:', e.message);
+        }
+      }
+
+      console.log('[Job Manager] Final extracted LinkedIn user info:', userInfo);
+    } catch (error) {
+      console.error('[Job Manager] Error extracting user info:', error);
+    }
+
+    return userInfo;
+  }
+
   // Extract job data from LinkedIn page
   function extractJobData() {
     const data = {
@@ -67,7 +300,7 @@
         
         // Try to find title in right panel (skip section headings)
         if (!data.title) {
-          const skipTexts = ['about the job', 'job description', 'show more', 'show less', 'apply now', 'save', 'easy apply'];
+          const skipTexts = ['about the job', 'job description', 'show more', 'show less', 'apply now', 'save', 'easy apply', 'assessing your job match', 'your profile matches'];
           
           // First, try to find title in the top card area (usually before company)
           const topCard = rightPanel.querySelector('.jobs-details-top-card') ||
@@ -75,15 +308,19 @@
                          rightPanel.querySelector('[class*="top-card"]') ||
                          rightPanel;
           
-          // Look for h1 or h2 in top card first
+          // Look for h1 or h2 in top card first, but skip "Assessing your job match" and similar
           const topCardTitle = topCard.querySelector('h1') || topCard.querySelector('h2');
           if (topCardTitle) {
             const text = topCardTitle.innerText.trim();
             const lowerText = text.toLowerCase();
+            // Skip "Assessing your job match" and similar assessment text
             if (text.length > 3 && 
                 !skipTexts.some(skip => lowerText.includes(skip)) &&
                 !lowerText.startsWith('about') &&
-                !lowerText.startsWith('show')) {
+                !lowerText.startsWith('show') &&
+                !lowerText.includes('assessing') &&
+                !lowerText.includes('job match') &&
+                !lowerText.includes('your profile matches')) {
               data.title = text;
               console.log('[Job Manager] Found title in top card:', data.title);
             }
@@ -103,7 +340,10 @@
                   !lowerText.startsWith('about') &&
                   !lowerText.startsWith('show') &&
                   !lowerText.includes('description') &&
-                  !lowerText.includes('qualification')) {
+                  !lowerText.includes('qualification') &&
+                  !lowerText.includes('assessing') &&
+                  !lowerText.includes('job match') &&
+                  !lowerText.includes('your profile matches')) {
                 data.title = text;
                 console.log('[Job Manager] Found title in right panel:', data.title);
                 break;
@@ -128,7 +368,8 @@
           // Try specific location selectors first
           let locationInPanel = rightPanel.querySelector('[class*="location"]') ||
                                rightPanel.querySelector('[class*="primary-description"]') ||
-                               rightPanel.querySelector('.jobs-details-top-card__primary-description');
+                               rightPanel.querySelector('.jobs-details-top-card__primary-description') ||
+                               rightPanel.querySelector('.jobs-details-top-card__primary-description-without-tagline');
           
           // If not found, search for elements containing bullet separator or location text
           if (!locationInPanel) {
@@ -136,7 +377,7 @@
             for (const el of allElements) {
               const text = el.innerText.trim();
               // Look for location patterns: contains ·, or location keywords, or country names
-              if ((text.includes('·') || text.match(/\b(India|Remote|Hybrid|On-site|Gurugram|Bangalore|Delhi|Noida|Hyderabad)\b/i)) && 
+              if ((text.includes('·') || text.match(/\b(India|Remote|Hybrid|On-site|Gurugram|Bangalore|Delhi|Noida|Hyderabad|Mumbai|Pune|Chennai|Kolkata|United States|USA|UK|Canada|Australia|Germany|France|Spain|Italy|Netherlands|Sweden|Norway|Denmark|Finland|Poland|Singapore|Japan|China|South Korea|Brazil|Mexico|Argentina|South Africa|New Zealand)\b/i)) && 
                   text.length < 200 && 
                   text.length > 3) {
                 locationInPanel = el;
@@ -147,13 +388,33 @@
           
           if (locationInPanel && locationInPanel.innerText.trim()) {
             const text = locationInPanel.innerText.trim();
-            const parts = text.split('·');
-            let location = parts[parts.length - 1]?.trim() || text;
-            // Clean up common prefixes (dates, applicant counts, etc.)
-            location = location.replace(/^[0-9]+\s*(day|days|month|months|ago|applicants?)\s*·?\s*/i, '').trim();
-            location = location.replace(/^Over\s+\d+\s+applicants?\s*·?\s*/i, '').trim();
-            data.location = location;
-            console.log('[Job Manager] Found location in right panel:', data.location);
+            // Split by bullet points
+            const parts = text.split('·').map(p => p.trim()).filter(p => p);
+            
+            // Find the location part (usually the last meaningful part)
+            let location = '';
+            for (let i = parts.length - 1; i >= 0; i--) {
+              const part = parts[i];
+              // Skip dates, applicant counts, etc.
+              if (!part.match(/^\d+\s*(day|days|month|months|ago|applicants?)$/i) &&
+                  !part.match(/^Over\s+\d+\s+applicants?$/i) &&
+                  !part.match(/^[0-9]+\s*(day|days|month|months|ago)$/i) &&
+                  part.length > 2) {
+                location = part;
+                break;
+              }
+            }
+            
+            // If no location found in parts, try the whole text
+            if (!location && text.length < 100) {
+              location = text.replace(/^[0-9]+\s*(day|days|month|months|ago|applicants?)\s*·?\s*/i, '').trim();
+              location = location.replace(/^Over\s+\d+\s+applicants?\s*·?\s*/i, '').trim();
+            }
+            
+            if (location) {
+              data.location = location;
+              console.log('[Job Manager] Found location in right panel:', data.location);
+            }
           }
         }
       }
@@ -196,10 +457,19 @@
 
         const cardLocation = jobCard.querySelector('.job-search-card__location') ||
                             jobCard.querySelector('.job-search-card__metadata-wrapper') ||
-                            jobCard.querySelector('.base-search-card__metadata');
+                            jobCard.querySelector('.base-search-card__metadata') ||
+                            jobCard.querySelector('[class*="location"]') ||
+                            jobCard.querySelector('[class*="metadata"]');
         if (cardLocation) {
-          data.location = cardLocation.innerText.trim();
-          console.log('[Job Manager] Found location from card:', data.location);
+          let locationText = cardLocation.innerText.trim();
+          // Clean up location text - remove extra whitespace and newlines
+          locationText = locationText.replace(/\s+/g, ' ').trim();
+          // Remove common prefixes
+          locationText = locationText.replace(/^[0-9]+\s*(day|days|month|months|ago|applicants?)\s*·?\s*/i, '').trim();
+          if (locationText && locationText.length > 0) {
+            data.location = locationText;
+            console.log('[Job Manager] Found location from card:', data.location);
+          }
         }
 
         // Try to get the actual job view URL
@@ -218,26 +488,29 @@
     // Try multiple selectors for title (detail page or right panel)
     if (!data.title) {
       const titleSelectors = [
-        // Search results right panel
-        '.jobs-search__job-details h1',
+        // Search results right panel - prioritize these
         '.jobs-details-top-card__job-title h1',
         '.jobs-details-top-card h1',
-        '.job-details-top-card h1',
         '.scaffold-layout__detail h1',
-        // Standard detail page
+        '.jobs-search__job-details h1',
+        '.job-details-top-card h1',
+        // Standard detail page - prioritize these
         'h1.job-details-jobs-unified-top-card__job-title',
         'h1.jobs-details-top-card__job-title',
-        'h1[data-test-id="job-title"]',
         '.job-details-jobs-unified-top-card__job-title',
+        'h1[data-test-id="job-title"]',
         'h1.job-details__job-title',
         '.jobs-details__job-title h1',
         'h1.jobs-details-top-card__job-title-link',
-        // Generic fallback
-        'main h1',
-        'h1'
+        // Look for title in main content area
+        'main .jobs-details-top-card h1',
+        'main .job-details-jobs-unified-top-card h1',
+        // Generic fallback (but check it's not a section heading)
+        'main h1:first-of-type',
+        'h1:first-of-type'
       ];
       
-      const skipTexts = ['about the job', 'job description', 'show more', 'show less', 'apply now', 'save', 'linkedin'];
+      const skipTexts = ['about the job', 'job description', 'show more', 'show less', 'apply now', 'save', 'linkedin', 'assessing your job match', 'your profile matches'];
       
       for (const selector of titleSelectors) {
         const element = document.querySelector(selector);
@@ -246,10 +519,17 @@
           const lowerText = text.toLowerCase();
           
           // Skip generic headings and section titles
+          // Also skip if it looks like a job ID number
           if (text.length > 3 && 
+              text.length < 150 && // Job titles shouldn't be too long
               !skipTexts.some(skip => lowerText.includes(skip)) &&
               !lowerText.startsWith('about') &&
-              !lowerText.startsWith('show')) {
+              !lowerText.startsWith('show') &&
+              !lowerText.includes('assessing') &&
+              !lowerText.includes('job match') &&
+              !lowerText.includes('your profile matches') &&
+              !text.match(/^Job\s*#?\d+$/i) && // Don't accept "Job #123" format
+              !text.match(/^\d+$/)) { // Don't accept pure numbers
             data.title = text;
             console.log('[Job Manager] Found title:', data.title, 'using selector:', selector);
             break;
@@ -296,32 +576,106 @@
     // Try multiple selectors for location
     if (!data.location) {
       const locationSelectors = [
-        // Search results right panel
-        '.jobs-details-top-card__primary-description',
+        // Search results right panel - prioritize these
         '.jobs-details-top-card__primary-description-without-tagline',
+        '.jobs-details-top-card__primary-description',
         '.scaffold-layout__detail .jobs-details-top-card__primary-description',
-        // Standard detail page
+        // Standard detail page - prioritize these
         '.job-details-jobs-unified-top-card__primary-description-without-tagline',
         '.job-details-jobs-unified-top-card__bullet',
         '[data-test-id="job-location"]',
-        '.job-details__job-criteria-text',
         '.jobs-unified-top-card__primary-description',
-        '.jobs-details__primary-description'
+        '.jobs-details__primary-description',
+        // Additional selectors
+        '.jobs-details-top-card__job-info',
+        '.job-details-jobs-unified-top-card__job-info',
+        '[class*="job-info"]',
+        '[class*="location"]'
       ];
       
       for (const selector of locationSelectors) {
         const element = document.querySelector(selector);
         if (element && element.innerText.trim()) {
           const text = element.innerText.trim();
+          
           // Extract location (usually after company name, separated by ·)
-          const parts = text.split('·');
-          // Take the last part (usually location) or the whole text
-          let location = parts[parts.length - 1]?.trim() || text;
-          // Clean up common prefixes
-          location = location.replace(/^[0-9]+\s*(day|days|month|months|ago)\s*·?\s*/i, '').trim();
-          data.location = location;
-          console.log('[Job Manager] Found location:', data.location, 'using selector:', selector);
-          break;
+          const parts = text.split('·').map(p => p.trim()).filter(p => p);
+          
+          // Find the location part (usually the last meaningful part)
+          let location = '';
+          for (let i = parts.length - 1; i >= 0; i--) {
+            const part = parts[i];
+            
+            // Skip dates, applicant counts, job types, etc.
+            if (!part.match(/^\d+\s*(day|days|month|months|ago|applicants?)$/i) &&
+                !part.match(/^Over\s+\d+\s+applicants?$/i) &&
+                !part.match(/^[0-9]+\s*(day|days|month|months|ago)$/i) &&
+                !part.toLowerCase().includes('applicant') &&
+                !part.toLowerCase().includes('full-time') &&
+                !part.toLowerCase().includes('part-time') &&
+                !part.toLowerCase().includes('contract') &&
+                !part.toLowerCase().includes('remote') && // Skip if it's just "Remote" without location
+                !part.toLowerCase().includes('hybrid') &&
+                !part.toLowerCase().includes('on-site') &&
+                !part.toLowerCase().includes('responses managed') &&
+                part.length > 2 &&
+                part.length < 150) { // Location shouldn't be too long
+              
+              // Check if it looks like a location (contains city, state, or country)
+              const countries = /India|United States|USA|UK|Canada|Australia|Germany|France|Spain|Italy|Netherlands|Sweden|Norway|Denmark|Finland|Poland|Singapore|Japan|China|South Korea|Brazil|Mexico|Argentina|South Africa|New Zealand/i;
+              const states = /Karnataka|Maharashtra|Tamil Nadu|West Bengal|Gujarat|Rajasthan|Madhya Pradesh|Punjab|Haryana|Uttar Pradesh|Andhra Pradesh|Telangana|Kerala|Odisha|Assam|Jharkhand|Chhattisgarh|Himachal Pradesh|Uttarakhand|Goa|Manipur|Meghalaya|Mizoram|Nagaland|Sikkim|Tripura|Arunachal Pradesh/i;
+              
+              if (part.match(countries) || part.match(states) || 
+                  part.match(/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,?\s*[A-Z][a-z]+,?\s*[A-Z][a-z]+/)) {
+                location = part;
+                break;
+              }
+            }
+          }
+          
+          // If no location found in parts, try to extract from whole text
+          // Look for pattern like "City, State, Country"
+          if (!location && text.length < 200) {
+            const countries = /India|United States|USA|UK|Canada|Australia|Germany|France|Spain|Italy|Netherlands|Sweden|Norway|Denmark|Finland|Poland|Singapore|Japan|China|South Korea|Brazil|Mexico|Argentina|South Africa|New Zealand/i;
+            const states = /Karnataka|Maharashtra|Tamil Nadu|West Bengal|Gujarat|Rajasthan|Madhya Pradesh|Punjab|Haryana|Uttar Pradesh|Andhra Pradesh|Telangana|Kerala|Odisha|Assam|Jharkhand|Chhattisgarh|Himachal Pradesh|Uttarakhand|Goa|Manipur|Meghalaya|Mizoram|Nagaland|Sikkim|Tripura|Arunachal Pradesh/i;
+            
+            // Try to find location pattern
+            const locationMatch = text.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,?\s*[A-Z][a-z]+,?\s*(?:India|United States|USA|UK|Canada|Australia|Germany|France|Spain|Italy|Netherlands|Sweden|Norway|Denmark|Finland|Poland|Singapore|Japan|China|South Korea|Brazil|Mexico|Argentina|South Africa|New Zealand))/i);
+            if (locationMatch) {
+              location = locationMatch[1].trim();
+            } else if (text.match(countries) || text.match(states)) {
+              // Extract the part containing country/state
+              const parts = text.split(',').map(p => p.trim());
+              for (let i = parts.length - 1; i >= 0; i--) {
+                if (parts[i].match(countries) || parts[i].match(states)) {
+                  // Take this part and maybe the one before it
+                  if (i > 0 && parts[i-1].length < 50) {
+                    location = `${parts[i-1]}, ${parts[i]}`;
+                  } else {
+                    location = parts[i];
+                  }
+                  break;
+                }
+              }
+            } else {
+              // Fallback: clean up and take reasonable length
+              location = text.replace(/^[0-9]+\s*(day|days|month|months|ago|applicants?)\s*·?\s*/i, '').trim();
+              location = location.replace(/^Over\s+\d+\s+applicants?\s*·?\s*/i, '').trim();
+              // If it's still too long, take first reasonable part
+              if (location.length > 100) {
+                const firstPart = location.split(',')[0];
+                if (firstPart && firstPart.length < 100) {
+                  location = firstPart.trim();
+                }
+              }
+            }
+          }
+          
+          if (location && location.length > 0 && location.length < 150) {
+            data.location = location;
+            console.log('[Job Manager] Found location:', data.location, 'using selector:', selector);
+            break;
+          }
         }
       }
     }
@@ -379,24 +733,51 @@
       }
 
       // Set defaults if missing (but we have jobId)
-      if (!jobData.title) {
-        if (currentJobId) {
+      // Only set default title if we really can't find it
+      if (!jobData.title || jobData.title.trim() === '') {
+        // Try one more time to get title from page
+        const titleEl = document.querySelector('h1.job-details-jobs-unified-top-card__job-title, h1.jobs-details-top-card__job-title, .jobs-details-top-card h1, main h1:first-of-type');
+        if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 3) {
+          jobData.title = titleEl.innerText.trim();
+        } else if (currentJobId) {
           jobData.title = `Job #${currentJobId}`;
         } else {
           jobData.title = 'Untitled Job';
         }
       }
-      if (!jobData.company) {
+      if (!jobData.company || jobData.company.trim() === '') {
         jobData.company = 'Unknown Company';
       }
       
+      // Extract LinkedIn user information (name and profile URL from page)
+      const linkedInUserInfo = extractLinkedInUserInfo();
+      
+      // Get stored user contact info from Chrome storage (set via popup)
+      const storedUserInfo = await chrome.storage.sync.get(['userEmail', 'userPhone', 'userName', 'userProfileUrl']);
+      
+      // Combine extracted LinkedIn info with stored contact info
+      // Priority: Use stored info if available, otherwise use extracted info
+      jobData.userInfo = {
+        name: (storedUserInfo.userName || linkedInUserInfo.name || '').trim(),
+        profileUrl: (storedUserInfo.userProfileUrl || linkedInUserInfo.profileUrl || '').trim(),
+        email: (storedUserInfo.userEmail || linkedInUserInfo.email || '').trim(),
+        phone: (storedUserInfo.userPhone || linkedInUserInfo.phone || '').trim()
+      };
+
       // Log what we're saving
-      console.log('[Job Manager] Saving job data:', jobData);
+      console.log('[Job Manager] Saving job data:', JSON.stringify(jobData, null, 2));
+      console.log('[Job Manager] User info being sent:', JSON.stringify(jobData.userInfo, null, 2));
+      console.log('[Job Manager] Stored user info from popup:', storedUserInfo);
 
       // Get user ID from storage (default to demo-user)
       const result = await chrome.storage.sync.get(['userId']);
       const userId = result.userId || 'demo-user';
       jobData.userId = userId;
+
+      // Ensure location is not empty string if we couldn't find it
+      if (!jobData.location || jobData.location.trim() === '') {
+        jobData.location = 'Not specified';
+      }
 
       // Send to API
       const response = await fetch(API_URL, {

@@ -45,12 +45,53 @@
       margin-top: 12px;
       line-height: 1.5;
     }
+    .user-info {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #e5e7eb;
+    }
+    .user-info h4 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: #333;
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 12px;
+      box-sizing: border-box;
+    }
+    input:focus {
+      outline: none;
+      border-color: #0A66C2;
+    }
+    .save-info-btn {
+      margin-top: 8px;
+      background: #10b981;
+    }
+    .save-info-btn:hover {
+      background: #059669;
+    }
   </style>
 </head>
 <body>
   <h3>Job Application Manager</h3>
   <div class="status" id="status">Checking connection...</div>
   <button id="testBtn">Test API Connection</button>
+  
+  <div class="user-info">
+    <h4>Your Contact Info (Optional)</h4>
+    <input type="text" id="userName" placeholder="Your name">
+    <input type="text" id="userProfileUrl" placeholder="LinkedIn profile URL">
+    <input type="email" id="userEmail" placeholder="Your email address">
+    <input type="tel" id="userPhone" placeholder="Your phone number">
+    <button id="saveInfoBtn" class="save-info-btn">Save Contact Info</button>
+    <div class="info" id="infoMsg" style="display: none; margin-top: 8px;"></div>
+  </div>
+  
   <div class="info">
     Visit a LinkedIn job page and click "Save to Job Manager" button to save jobs.
   </div>

@@ -28,6 +28,13 @@ const JobSchema = new mongoose.Schema({
     salary: String,
     requirements: [String]
   },
+  // User contact info (from extension)
+  userInfo: {
+    name: { type: String, trim: true },
+    profileUrl: { type: String, trim: true },
+    email: { type: String, trim: true },
+    phone: { type: String, trim: true }
+  },
   // Email data
   emailData: {
     sent: { type: Boolean, default: false },
