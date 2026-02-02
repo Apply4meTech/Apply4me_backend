@@ -237,6 +237,37 @@ const UserSchema = new mongoose.Schema({
   personalBlog: {
     type: String,
     trim: true
+  },
+  // Subscription information
+  subscription: {
+    planName: {
+      type: String,
+      enum: ['Starter', 'Standard', 'Pro', 'Premium'],
+      default: null
+    },
+    billingPeriod: {
+      type: String,
+      enum: ['monthly', 'quarterly'],
+      default: null
+    },
+    startDate: {
+      type: Date,
+      default: null
+    },
+    endDate: {
+      type: Date,
+      default: null
+    },
+    status: {
+      type: String,
+      enum: ['active', 'expired', 'cancelled'],
+      default: null
+    },
+    paymentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Payment',
+      default: null
+    }
   }
 });
 
