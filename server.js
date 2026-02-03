@@ -59,6 +59,7 @@ const applicationRoutes = require('./routes/applicationRoutes');
 const employeeDashboardRoutes = require('./routes/employeeDashboardRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const razorpayRoutes = require('./routes/razorpayRoutes');
+const blogRoutes = require('./routes/blogRoutes');
 
 // Use Routes
 app.use('/', healthRoutes);
@@ -75,6 +76,7 @@ app.use('/api/applications', applicationRoutes);
 app.use('/api/employee', employeeDashboardRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/payments/razorpay', razorpayRoutes);
+app.use('/api/blogs', blogRoutes);
 
 // Serve dashboard 
 app.get('/dashboard', (req, res) => {

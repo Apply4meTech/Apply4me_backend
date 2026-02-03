@@ -50,10 +50,20 @@ const createRazorpayOrder = async (req, res) => {
     const razorpayResult = await razorpayService.createOrder(razorpayOrderData);
 
     if (!razorpayResult.success) {
-      return res.status(500).json({
+      console.error('❌ Razorpay order creation failed:', razorpayResult.message);
+      console.error('❌ Error details:', JSON.stringify(razorpayResult.error, null, 2));
+      
+      // Return appropriate status code based on error type
+      const statusCode = razorpayResult.error?.statusCode === 401 ? 401 : 500;
+      
+      return res.status(statusCode).json({
         success: false,
-        message: 'Failed to create Razorpay order',
-        error: razorpayResult.message
+        message: razorpayResult.message || 'Failed to create Razorpay order',
+        error: process.env.NODE_ENV === 'development' 
+          ? razorpayResult.error
+          : (razorpayResult.error?.statusCode === 401 
+              ? 'Authentication failed. Please check Razorpay credentials.'
+              : 'Failed to create Razorpay order')
       });
     }
 

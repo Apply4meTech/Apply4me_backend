@@ -4,19 +4,38 @@ const { v4: uuidv4 } = require('uuid');
 
 class RazorpayService {
   constructor() {
-    // Validate environment variables
-    if (!process.env.RAZORPAY_KEY_ID) {
-      throw new Error('RAZORPAY_KEY_ID is not set in environment variables');
-    }
-    if (!process.env.RAZORPAY_KEY_SECRET) {
-      throw new Error('RAZORPAY_KEY_SECRET is not set in environment variables');
-    }
+    this.razorpay = null;
+    this.initialized = false;
+    this.initialize();
+  }
 
-    // Initialize Razorpay instance
-    this.razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
-    });
+  initialize() {
+    try {
+      // Validate environment variables
+      if (!process.env.RAZORPAY_KEY_ID) {
+        console.error('⚠️ RAZORPAY_KEY_ID is not set in environment variables');
+        return;
+      }
+      if (!process.env.RAZORPAY_KEY_SECRET) {
+        console.error('⚠️ RAZORPAY_KEY_SECRET is not set in environment variables');
+        return;
+      }
+
+      // Initialize Razorpay instance
+      this.razorpay = new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET,
+      });
+      this.initialized = true;
+      console.log('✅ Razorpay service initialized successfully');
+    } catch (error) {
+      console.error('❌ Error initializing Razorpay service:', error.message);
+      this.initialized = false;
+    }
+  }
+
+  isInitialized() {
+    return this.initialized && this.razorpay !== null;
   }
 
   /**
@@ -33,6 +52,15 @@ class RazorpayService {
    */
   async createOrder(orderData) {
     try {
+      // Check if service is initialized
+      if (!this.isInitialized()) {
+        return {
+          success: false,
+          message: 'Razorpay service is not initialized. Please check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET environment variables.',
+          error: 'Service not initialized'
+        };
+      }
+
       const {
         amount,
         currency = 'INR',
@@ -81,11 +109,39 @@ class RazorpayService {
         key_id: process.env.RAZORPAY_KEY_ID
       };
     } catch (error) {
-      console.error('Error creating Razorpay order:', error);
+      console.error('❌ Error creating Razorpay order:', error);
+      
+      // Extract detailed error information
+      let errorMessage = 'Failed to create Razorpay order';
+      let errorDetails = error;
+      
+      if (error.error) {
+        // Razorpay API error structure
+        errorMessage = error.error.description || error.error.message || errorMessage;
+        errorDetails = {
+          statusCode: error.statusCode,
+          code: error.error.code,
+          description: error.error.description,
+          field: error.error.field,
+          source: error.error.source,
+          step: error.error.step,
+          reason: error.error.reason
+        };
+      } else if (error.description) {
+        errorMessage = error.description;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      // Special handling for authentication errors
+      if (error.statusCode === 401 || (error.error && error.error.code === 'BAD_REQUEST_ERROR')) {
+        errorMessage = 'Razorpay authentication failed. Please check your RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.';
+      }
+
       return {
         success: false,
-        message: error.message || 'Failed to create Razorpay order',
-        error: error
+        message: errorMessage,
+        error: errorDetails
       };
     }
   }
@@ -205,6 +261,39 @@ class RazorpayService {
 }
 
 // Create and export a singleton instance
-const razorpayService = new RazorpayService();
+// Don't throw error on module load - let it initialize gracefully
+let razorpayService;
+try {
+  razorpayService = new RazorpayService();
+} catch (error) {
+  console.error('❌ Failed to initialize Razorpay service:', error.message);
+  // Create a dummy service that will return errors when methods are called
+  razorpayService = {
+    initialized: false,
+    isInitialized: () => false,
+    createOrder: async () => ({
+      success: false,
+      message: 'Razorpay service is not initialized. Please check environment variables.',
+      error: 'Service not initialized'
+    }),
+    verifyPayment: () => ({
+      success: false,
+      message: 'Razorpay service is not initialized'
+    }),
+    getPaymentDetails: async () => ({
+      success: false,
+      message: 'Razorpay service is not initialized'
+    }),
+    getOrderDetails: async () => ({
+      success: false,
+      message: 'Razorpay service is not initialized'
+    }),
+    validateConfiguration: () => ({
+      success: false,
+      missingVars: ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET']
+    })
+  };
+}
+
 module.exports = razorpayService;
 
