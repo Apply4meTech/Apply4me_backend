@@ -8,7 +8,7 @@ const { uploadFileToS3, deleteFileFromS3 } = require('../utils/s3Service');
  */
 const createBlog = async (req, res) => {
   try {
-    const { title, description, content, tags, status } = req.body;
+    const { title, description, content, tags, status, authorName } = req.body;
     const employeeId = req.employeeId;
     const employee = req.employee;
 
@@ -83,7 +83,7 @@ const createBlog = async (req, res) => {
       featuredImage,
       images,
       author: employeeId,
-      authorName: employee.name,
+      authorName: authorName || employee.name,
       slug: uniqueSlug,
       status: status || 'published',
       tags: parsedTags
@@ -236,7 +236,7 @@ const getBlogById = async (req, res) => {
 const updateBlog = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, content, tags, status } = req.body;
+    const { title, description, content, tags, status, authorName } = req.body;
 
     // Find blog
     const blog = await Blog.findById(id);
@@ -272,6 +272,7 @@ const updateBlog = async (req, res) => {
     if (description !== undefined) blog.description = description;
     if (content !== undefined) blog.content = content;
     if (status !== undefined) blog.status = status;
+    if (authorName !== undefined) blog.authorName = authorName;
 
     // Handle tags
     if (tags !== undefined) {
