@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Newsletter = require('../models/Newsletter');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendPasswordResetEmail, sendPasswordResetSuccessEmail } = require('../utils/emailService');
@@ -45,6 +46,13 @@ const signup = async (req, res) => {
     // Generate JWT token
     const token = generateToken(user._id);
 
+    // Check if user is subscribed to newsletter
+    const newsletterSubscription = await Newsletter.findOne({ 
+      email: user.email.toLowerCase(),
+      isActive: true 
+    });
+    const isNewsletterSubscribed = !!newsletterSubscription;
+
     
     res.status(201).json({
       success: true,
@@ -55,6 +63,7 @@ const signup = async (req, res) => {
         name: user.name,
         email: user.email,
         isOnboardingComplete: user.isOnboardingComplete || false,
+        isNewsletterSubscribed: isNewsletterSubscribed,
         createdAt: user.createdAt
       }
     });
@@ -122,6 +131,13 @@ const login = async (req, res) => {
     // Generate JWT token
     const token = generateToken(user._id);
 
+    // Check if user is subscribed to newsletter
+    const newsletterSubscription = await Newsletter.findOne({ 
+      email: user.email.toLowerCase(),
+      isActive: true 
+    });
+    const isNewsletterSubscribed = !!newsletterSubscription;
+
     
     res.json({
       success: true,
@@ -132,6 +148,7 @@ const login = async (req, res) => {
         name: user.name,
         email: user.email,
         isOnboardingComplete: user.isOnboardingComplete || false,
+        isNewsletterSubscribed: isNewsletterSubscribed,
         createdAt: user.createdAt
       }
     });
