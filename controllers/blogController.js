@@ -1,4 +1,5 @@
 const Blog = require('../models/Blog');
+const mongoose = require('mongoose');
 const { uploadFileToS3, deleteFileFromS3 } = require('../utils/s3Service');
 
 /**
@@ -125,13 +126,15 @@ const createBlog = async (req, res) => {
 /**
  * Get all published blogs (public)
  * GET /api/blogs
+ * Query params: status, page, limit, filter (liked, bookmarked)
  */
 const getAllBlogs = async (req, res) => {
   try {
-    const { status, page = 1, limit = 10 } = req.query;
+    const { status, page = 1, limit = 10, filter } = req.query;
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
+    const userId = req.userId; // From optionalAuth middleware
 
     // Build query - if not admin, only show published blogs
     const query = {};
@@ -145,17 +148,63 @@ const getAllBlogs = async (req, res) => {
     }
     // If status is 'all' and user is super admin, don't filter by status
 
+    // Handle filter for liked/bookmarked blogs
+    if (filter === 'liked' || filter === 'bookmarked') {
+      // Filter requires authentication
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          error: 'Authentication required to filter by liked or bookmarked blogs'
+        });
+      }
+
+      // Add filter to query based on filter type
+      // MongoDB will match documents where the array contains the userId
+      // Convert userId to ObjectId if it's a valid ObjectId string
+      const userObjectId = mongoose.Types.ObjectId.isValid(userId) 
+        ? new mongoose.Types.ObjectId(userId) 
+        : userId;
+      
+      if (filter === 'liked') {
+        query.likes = userObjectId;
+      } else if (filter === 'bookmarked') {
+        query.bookmarks = userObjectId;
+      }
+    }
+
     // Get total count
     const total = await Blog.countDocuments(query);
 
     // Get blogs
-    const blogs = await Blog.find(query)
+    let blogs = await Blog.find(query)
       .select('-content') // Don't send full content in list view
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum)
       .populate('author', 'name email')
       .lean();
+
+    // Add like and bookmark counts and user status to each blog
+    blogs = blogs.map(blog => {
+      const blogObj = { ...blog };
+      blogObj.likeCount = blog.likes ? blog.likes.length : 0;
+      blogObj.bookmarkCount = blog.bookmarks ? blog.bookmarks.length : 0;
+      
+      // Check if current user has liked/bookmarked (if authenticated)
+      if (userId) {
+        blogObj.isLiked = blog.likes && blog.likes.some(
+          likeId => likeId.toString() === userId.toString()
+        );
+        blogObj.isBookmarked = blog.bookmarks && blog.bookmarks.some(
+          bookmarkId => bookmarkId.toString() === userId.toString()
+        );
+      } else {
+        blogObj.isLiked = false;
+        blogObj.isBookmarked = false;
+      }
+      
+      return blogObj;
+    });
 
     res.json({
       success: true,
@@ -214,9 +263,24 @@ const getBlogById = async (req, res) => {
     blog.views += 1;
     await blog.save();
 
+    // Convert blog to object to add computed fields
+    const blogObj = blog.toObject();
+    
+    // Add like and bookmark counts
+    blogObj.likeCount = blog.likes ? blog.likes.length : 0;
+    blogObj.bookmarkCount = blog.bookmarks ? blog.bookmarks.length : 0;
+    
+    // Check if current user has liked/bookmarked (if authenticated)
+    blogObj.isLiked = req.userId && blog.likes && blog.likes.some(
+      likeId => likeId.toString() === req.userId.toString()
+    );
+    blogObj.isBookmarked = req.userId && blog.bookmarks && blog.bookmarks.some(
+      bookmarkId => bookmarkId.toString() === req.userId.toString()
+    );
+
     res.json({
       success: true,
-      blog
+      blog: blogObj
     });
   } catch (error) {
     console.error('Error in get blog by id:', error);
@@ -463,12 +527,158 @@ const deleteBlogImage = async (req, res) => {
   }
 };
 
+/**
+ * Like/Unlike a blog
+ * POST /api/blogs/:id/like
+ * Requires: User authentication (optionalAuth middleware)
+ */
+const toggleLike = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Please login to like this blog.'
+      });
+    }
+
+    // Check if id is a valid ObjectId or a slug
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+    
+    let blog;
+    if (isObjectId) {
+      blog = await Blog.findById(id);
+    } else {
+      blog = await Blog.findOne({ slug: id });
+    }
+    
+    if (!blog) {
+      return res.status(404).json({
+        success: false,
+        error: 'Blog not found'
+      });
+    }
+
+    // Check if user already liked
+    const isLiked = blog.likes && blog.likes.some(
+      likeId => likeId.toString() === userId.toString()
+    );
+
+    if (isLiked) {
+      // Unlike: remove user from likes array
+      blog.likes = blog.likes.filter(
+        likeId => likeId.toString() !== userId.toString()
+      );
+    } else {
+      // Like: add user to likes array (prevent duplicates)
+      if (!blog.likes) {
+        blog.likes = [];
+      }
+      if (!blog.likes.some(likeId => likeId.toString() === userId.toString())) {
+        blog.likes.push(userId);
+      }
+    }
+
+    await blog.save();
+
+    res.json({
+      success: true,
+      message: isLiked ? 'Blog unliked successfully' : 'Blog liked successfully',
+      isLiked: !isLiked,
+      likeCount: blog.likes.length
+    });
+  } catch (error) {
+    console.error('Error in toggle like:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to toggle like',
+      details: error.message
+    });
+  }
+};
+
+/**
+ * Bookmark/Unbookmark a blog
+ * POST /api/blogs/:id/bookmark
+ * Requires: User authentication (optionalAuth middleware)
+ */
+const toggleBookmark = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Please login to bookmark this blog.'
+      });
+    }
+
+    // Check if id is a valid ObjectId or a slug
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+    
+    let blog;
+    if (isObjectId) {
+      blog = await Blog.findById(id);
+    } else {
+      blog = await Blog.findOne({ slug: id });
+    }
+    
+    if (!blog) {
+      return res.status(404).json({
+        success: false,
+        error: 'Blog not found'
+      });
+    }
+
+    // Check if user already bookmarked
+    const isBookmarked = blog.bookmarks && blog.bookmarks.some(
+      bookmarkId => bookmarkId.toString() === userId.toString()
+    );
+
+    if (isBookmarked) {
+      // Unbookmark: remove user from bookmarks array
+      blog.bookmarks = blog.bookmarks.filter(
+        bookmarkId => bookmarkId.toString() !== userId.toString()
+      );
+    } else {
+      // Bookmark: add user to bookmarks array (prevent duplicates)
+      if (!blog.bookmarks) {
+        blog.bookmarks = [];
+      }
+      if (!blog.bookmarks.some(bookmarkId => bookmarkId.toString() === userId.toString())) {
+        blog.bookmarks.push(userId);
+      }
+    }
+
+    await blog.save();
+
+    res.json({
+      success: true,
+      message: isBookmarked ? 'Blog unbookmarked successfully' : 'Blog bookmarked successfully',
+      isBookmarked: !isBookmarked,
+      bookmarkCount: blog.bookmarks.length
+    });
+  } catch (error) {
+    console.error('Error in toggle bookmark:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to toggle bookmark',
+      details: error.message
+    });
+  }
+};
+
 module.exports = {
   createBlog,
   getAllBlogs,
   getBlogById,
   updateBlog,
   deleteBlog,
-  deleteBlogImage
+  deleteBlogImage,
+  toggleLike,
+  toggleBookmark
 };
 

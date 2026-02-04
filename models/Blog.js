@@ -104,6 +104,14 @@ const BlogSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  likes: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  bookmarks: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
   tags: [{
     type: String,
     trim: true
@@ -138,6 +146,8 @@ BlogSchema.pre('save', function(next) {
 BlogSchema.index({ slug: 1 });
 BlogSchema.index({ status: 1, createdAt: -1 });
 BlogSchema.index({ author: 1 });
+BlogSchema.index({ likes: 1 });
+BlogSchema.index({ bookmarks: 1 });
 
 module.exports = mongoose.model('Blog', BlogSchema);
 

@@ -7,7 +7,9 @@ const {
   getBlogById,
   updateBlog,
   deleteBlog,
-  deleteBlogImage
+  deleteBlogImage,
+  toggleLike,
+  toggleBookmark
 } = require('../controllers/blogController');
 const { verifyEmployeeToken, requireSuperAdmin } = require('../middleware/employeeAuth');
 const { optionalAuth } = require('../middleware/optionalAuth');
@@ -93,6 +95,11 @@ const optionalEmployeeOrUserAuth = async (req, res, next) => {
 };
 
 router.get('/', optionalEmployeeOrUserAuth, getAllBlogs); // GET /api/blogs - Get all published blogs
+
+// User interaction routes (require user authentication via optionalAuth) - must come before /:id
+router.post('/:id/like', optionalAuth, toggleLike); // POST /api/blogs/:id/like - Like/Unlike blog
+router.post('/:id/bookmark', optionalAuth, toggleBookmark); // POST /api/blogs/:id/bookmark - Bookmark/Unbookmark blog
+
 router.get('/:id', optionalEmployeeOrUserAuth, getBlogById); // GET /api/blogs/:id - Get blog by ID or slug
 
 // Admin routes (require super admin authentication)
