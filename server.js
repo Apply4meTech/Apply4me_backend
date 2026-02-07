@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 4000;
 // Middleware
 // CORS configuration - allow requests from frontend
 const corsOptions = {
-  origin: process.env.FRONTEND_URL || '*', // Allow all origins by default, or specify frontend URL
+  origin: '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
