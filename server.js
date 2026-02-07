@@ -20,6 +20,7 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true, limit: '10mb' })); // Parse URL-encoded bodies (for FormData)
 app.use(express.static('public')); // Serve static files
 
 // MongoDB Connection
@@ -49,6 +50,17 @@ const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const jobRoutes = require('./routes/jobRoutes');
 const statsRoutes = require('./routes/statsRoutes');
+const employeeRoutes = require('./routes/employeeRoutes');
+const onboardingRoutes = require('./routes/onboardingRoutes');
+const fileUploadRoutes = require('./routes/fileUploadRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
+const profileRoutes = require('./routes/profileRoutes');
+const applicationRoutes = require('./routes/applicationRoutes');
+const employeeDashboardRoutes = require('./routes/employeeDashboardRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
+const razorpayRoutes = require('./routes/razorpayRoutes');
+const blogRoutes = require('./routes/blogRoutes');
+const newsletterRoutes = require('./routes/newsletterRoutes');
 
 // Use Routes
 app.use('/', healthRoutes);
@@ -56,6 +68,17 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/auth/employee', employeeRoutes);
+app.use('/api/onboarding', onboardingRoutes);
+app.use('/api/upload', fileUploadRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/applications', applicationRoutes);
+app.use('/api/employee', employeeDashboardRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/payments/razorpay', razorpayRoutes);
+app.use('/api/blogs', blogRoutes);
+app.use('/api/newsletter', newsletterRoutes);
 
 // Serve dashboard 
 app.get('/dashboard', (req, res) => {

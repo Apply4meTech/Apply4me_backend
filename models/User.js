@@ -28,6 +28,246 @@ const UserSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  },
+  resetPasswordToken: {
+    type: String,
+    default: null
+  },
+  resetPasswordExpires: {
+    type: Date,
+    default: null
+  },
+  // Profile picture
+  profilePicture: {
+    fileName: {
+      type: String,
+      trim: true
+    },
+    fileSize: {
+      type: Number
+    },
+    resourceId: {
+      type: String,
+      trim: true
+    },
+    url: {
+      type: String,
+      trim: true
+    },
+    key: {
+      type: String,
+      trim: true
+    },
+    bucket: {
+      type: String,
+      trim: true
+    },
+    mimeType: {
+      type: String,
+      trim: true
+    },
+    uploadedAt: {
+      type: Date
+    }
+  },
+  // Account manager reference
+  accountManagerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee',
+    default: null
+  },
+  // Onboarding fields
+  isOnboardingComplete: {
+    type: Boolean,
+    default: false
+  },
+  // Step 1: Personal Information
+  fullName: {
+    type: String,
+    trim: true
+  },
+  phoneCode: {
+    type: String,
+    trim: true
+  },
+  phone: {
+    type: String,
+    trim: true
+  },
+  address: {
+    type: String,
+    trim: true
+  },
+  openToRelocate: {
+    type: Boolean,
+    default: false
+  },
+  countryOfWork: {
+    type: String,
+    trim: true
+  },
+  visaSponsorshipRequired: {
+    type: Boolean,
+    default: false
+  },
+  // Step 2: Job Preferences & Compensation
+  primaryJobTitles: {
+    type: [String],
+    default: []
+  },
+  skills: {
+    type: [String],
+    default: []
+  },
+  totalYearsExperience: {
+    type: Number
+  },
+  seniorityLevel: {
+    type: String,
+    enum: ['Intern', 'Junior', 'Mid level', 'Senior/Lead', ''],
+    default: ''
+  },
+  jobTypes: {
+    type: [String],
+    default: []
+  },
+  workLocation: {
+    type: String,
+    enum: ['Remote', 'Hybrid', 'On-site', ''],
+    default: ''
+  },
+  locationPreference: {
+    type: String,
+    trim: true
+  },
+  remoteOnly: {
+    type: Boolean,
+    default: false
+  },
+  minAcceptableSalary: {
+    type: Number
+  },
+  preferredSalaryMin: {
+    type: Number
+  },
+  preferredSalaryMax: {
+    type: Number
+  },
+  equityPreference: {
+    type: Boolean,
+    default: false
+  },
+  // Step 3: Documents & Links
+  resume_details: {
+    fileName: {
+      type: String,
+      trim: true
+    },
+    fileSize: {
+      type: Number
+    },
+    resourceId: {
+      type: String,
+      trim: true
+    },
+    url: {
+      type: String,
+      trim: true
+    },
+    key: {
+      type: String,
+      trim: true
+    },
+    bucket: {
+      type: String,
+      trim: true
+    },
+    mimeType: {
+      type: String,
+      trim: true
+    },
+    uploadedAt: {
+      type: Date
+    }
+  },
+  cv_details: {
+    fileName: {
+      type: String,
+      trim: true
+    },
+    fileSize: {
+      type: Number
+    },
+    resourceId: {
+      type: String,
+      trim: true
+    },
+    url: {
+      type: String,
+      trim: true
+    },
+    key: {
+      type: String,
+      trim: true
+    },
+    bucket: {
+      type: String,
+      trim: true
+    },
+    mimeType: {
+      type: String,
+      trim: true
+    },
+    uploadedAt: {
+      type: Date
+    }
+  },
+  portfolioWebsite: {
+    type: String,
+    trim: true
+  },
+  github: {
+    type: String,
+    trim: true
+  },
+  linkedinProfile: {
+    type: String,
+    trim: true
+  },
+  personalBlog: {
+    type: String,
+    trim: true
+  },
+  // Subscription information
+  subscription: {
+    planName: {
+      type: String,
+      enum: ['Starter', 'Standard', 'Pro', 'Premium'],
+      default: null
+    },
+    billingPeriod: {
+      type: String,
+      enum: ['monthly', 'quarterly'],
+      default: null
+    },
+    startDate: {
+      type: Date,
+      default: null
+    },
+    endDate: {
+      type: Date,
+      default: null
+    },
+    status: {
+      type: String,
+      enum: ['active', 'expired', 'cancelled'],
+      default: null
+    },
+    paymentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Payment',
+      default: null
+    }
   }
 });
 
