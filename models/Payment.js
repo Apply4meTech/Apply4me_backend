@@ -45,8 +45,8 @@ const paymentSchema = new mongoose.Schema({
   // Payment method
   paymentMethod: {
     type: String,
-    enum: ['UPI', 'CARD', 'NET_BANKING', 'WALLET', 'RAZORPAY'],
-    default: 'RAZORPAY'
+    enum: ['UPI', 'CARD', 'NET_BANKING', 'WALLET', 'STRIPE'],
+    default: 'STRIPE'
   },
   
   // Payment gateway response data
@@ -55,26 +55,22 @@ const paymentSchema = new mongoose.Schema({
     default: {}
   },
   
-  // Razorpay specific fields
-  razorpayOrderId: {
+  // Stripe specific fields
+  stripePaymentIntentId: {
     type: String,
     index: true
   },
   
-  razorpayPaymentId: {
+  stripePaymentId: {
     type: String,
     index: true
-  },
-  
-  razorpaySignature: {
-    type: String
   },
   
   // Gateway used for payment
   gateway: {
     type: String,
-    enum: ['RAZORPAY'],
-    default: 'RAZORPAY'
+    enum: ['STRIPE'],
+    default: 'STRIPE'
   },
   
   // Subscription/Plan details
@@ -108,8 +104,8 @@ const paymentSchema = new mongoose.Schema({
 
 // Indexes for better query performance
 paymentSchema.index({ userId: 1, status: 1 });
-paymentSchema.index({ razorpayOrderId: 1 });
-paymentSchema.index({ razorpayPaymentId: 1 });
+paymentSchema.index({ stripePaymentIntentId: 1 });
+paymentSchema.index({ stripePaymentId: 1 });
 paymentSchema.index({ gateway: 1, status: 1 });
 
 const Payment = mongoose.model('Payment', paymentSchema);
