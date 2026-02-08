@@ -193,13 +193,21 @@ const verifyStripePayment = async (req, res) => {
         const user = await User.findById(payment.userId);
         if (user) {
           // Update user's plan information
+          let endDate = null;
+          if (payment.billingPeriod === 'quarterly') {
+            endDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days
+          } else if (payment.billingPeriod === 'monthly') {
+            endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+          } else if (payment.billingPeriod === 'onetime') {
+            // For one-time payments, set endDate to null (no expiration)
+            endDate = null;
+          }
+          
           user.subscription = {
             planName: payment.planName,
             billingPeriod: payment.billingPeriod,
             startDate: new Date(),
-            endDate: payment.billingPeriod === 'quarterly' 
-              ? new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) // 90 days
-              : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+            endDate: endDate,
             status: 'active',
             paymentId: payment._id
           };

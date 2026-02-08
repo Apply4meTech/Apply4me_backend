@@ -82,7 +82,7 @@ class StripeService {
         amount: amountInCents,
         currency: currency.toLowerCase(),
         receipt_email: customerInfo.email,
-        description: `${planName || 'Subscription'} Plan - ${billingPeriod === 'monthly' ? 'Monthly' : 'Quarterly'}`,
+        description: `${planName || 'Subscription'} Plan - ${billingPeriod === 'monthly' ? 'Monthly' : billingPeriod === 'quarterly' ? 'Quarterly' : 'One-time'}`,
         metadata: {
           order_id: orderId || 'N/A',
           customer_name: customerInfo.name,
