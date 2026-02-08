@@ -1,12 +1,12 @@
-const razorpayService = require('../services/razorpayService');
+const stripeService = require('../services/stripeService');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 
 /**
- * Create Razorpay Order
- * POST /api/payments/razorpay/create-order
+ * Create Stripe Payment Intent
+ * POST /api/payments/stripe/create-payment-intent
  */
-const createRazorpayOrder = async (req, res) => {
+const createStripePaymentIntent = async (req, res) => {
   try {
     const {
       amount,
@@ -31,54 +31,55 @@ const createRazorpayOrder = async (req, res) => {
     }
 
     // Validate amount limits
-    if (amount < 1 || amount > 500000) {
+    if (amount < 1 || amount > 50000) {
       return res.status(400).json({
         success: false,
-        message: 'Amount must be between ₹1 and ₹5,00,000'
+        message: 'Amount must be between $1 and $50,000'
       });
     }
 
-    // Create Razorpay order
-    const razorpayOrderData = {
+    // Create Stripe payment intent
+    const stripeOrderData = {
       amount,
+      currency: 'usd',
       customerInfo,
       planName,
       billingPeriod,
       orderId: `plan_${Date.now()}_${req.user._id}`
     };
 
-    const razorpayResult = await razorpayService.createOrder(razorpayOrderData);
+    const stripeResult = await stripeService.createPaymentIntent(stripeOrderData);
 
-    if (!razorpayResult.success) {
-      console.error('❌ Razorpay order creation failed:', razorpayResult.message);
-      console.error('❌ Error details:', JSON.stringify(razorpayResult.error, null, 2));
+    if (!stripeResult.success) {
+      console.error('❌ Stripe payment intent creation failed:', stripeResult.message);
+      console.error('❌ Error details:', JSON.stringify(stripeResult.error, null, 2));
       
       // Return appropriate status code based on error type
-      const statusCode = razorpayResult.error?.statusCode === 401 ? 401 : 500;
+      const statusCode = stripeResult.error?.type === 'StripeAuthenticationError' ? 401 : 500;
       
       return res.status(statusCode).json({
         success: false,
-        message: razorpayResult.message || 'Failed to create Razorpay order',
+        message: stripeResult.message || 'Failed to create Stripe payment intent',
         error: process.env.NODE_ENV === 'development' 
-          ? razorpayResult.error
-          : (razorpayResult.error?.statusCode === 401 
-              ? 'Authentication failed. Please check Razorpay credentials.'
-              : 'Failed to create Razorpay order')
+          ? stripeResult.error
+          : (stripeResult.error?.type === 'StripeAuthenticationError' 
+              ? 'Authentication failed. Please check Stripe credentials.'
+              : 'Failed to create payment intent')
       });
     }
 
     // Create payment record in database
     const payment = new Payment({
       userId: req.user._id,
-      transactionId: razorpayResult.data.id,
-      merchantTransactionId: razorpayResult.data.receipt,
+      transactionId: stripeResult.data.id,
+      merchantTransactionId: stripeResult.data.metadata.receipt,
       amount: amount,
-      currency: razorpayResult.data.currency,
+      currency: stripeResult.data.currency.toUpperCase(),
       status: 'PENDING',
-      paymentMethod: 'RAZORPAY',
-      gateway: 'RAZORPAY',
-      razorpayOrderId: razorpayResult.data.id,
-      paymentResponse: razorpayResult.data,
+      paymentMethod: 'CARD',
+      gateway: 'STRIPE',
+      stripePaymentIntentId: stripeResult.data.id,
+      paymentResponse: stripeResult.data,
       planName: planName,
       billingPeriod: billingPeriod,
       metadata: {
@@ -93,73 +94,75 @@ const createRazorpayOrder = async (req, res) => {
 
     // Prepare response data
     const responseData = {
-      order_id: razorpayResult.data.id,
-      amount: razorpayResult.data.amount,
-      currency: razorpayResult.data.currency,
-      key_id: razorpayResult.key_id,
-      receipt: razorpayResult.data.receipt,
+      payment_intent_id: stripeResult.data.id,
+      client_secret: stripeResult.client_secret,
+      amount: stripeResult.data.amount / 100, // Convert from cents to dollars
+      currency: stripeResult.data.currency.toUpperCase(),
       payment_id: payment._id
     };
 
     res.json({
       success: true,
-      message: 'Razorpay order created successfully',
+      message: 'Stripe payment intent created successfully',
       data: responseData
     });
 
   } catch (error) {
-    console.error('❌ Error creating Razorpay order:', error);
+    console.error('❌ Error creating Stripe payment intent:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create Razorpay order',
+      message: 'Failed to create Stripe payment intent',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
 
 /**
- * Verify Razorpay Payment
- * POST /api/payments/razorpay/verify
+ * Verify Stripe Payment
+ * POST /api/payments/stripe/verify
  */
-const verifyRazorpayPayment = async (req, res) => {
+const verifyStripePayment = async (req, res) => {
   try {
     const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature
+      payment_intent_id
     } = req.body;
 
     // Validate required fields
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    if (!payment_intent_id) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required payment verification parameters',
+        message: 'Payment intent ID is required',
         redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`
       });
     }
 
-    // Verify payment with Razorpay
-    const verificationData = {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature
-    };
+    // Retrieve payment intent from Stripe
+    const stripeResult = await stripeService.getPaymentIntent(payment_intent_id);
 
-    const verificationResult = razorpayService.verifyPayment(verificationData);
-
-    if (!verificationResult.success) {
+    if (!stripeResult.success) {
       return res.status(400).json({
         success: false,
-        message: verificationResult.message,
-        payment_id: razorpay_payment_id,
+        message: stripeResult.message || 'Payment verification failed',
+        redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`
+      });
+    }
+
+    const paymentIntent = stripeResult.data;
+
+    // Check payment status
+    if (paymentIntent.status !== 'succeeded') {
+      return res.status(400).json({
+        success: false,
+        message: `Payment status is ${paymentIntent.status}. Payment must be succeeded.`,
+        payment_status: paymentIntent.status,
         redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`
       });
     }
 
     // Find the payment record
     const payment = await Payment.findOne({ 
-      razorpayOrderId: razorpay_order_id,
-      gateway: 'RAZORPAY'
+      stripePaymentIntentId: payment_intent_id,
+      gateway: 'STRIPE'
     });
 
     if (!payment) {
@@ -172,11 +175,14 @@ const verifyRazorpayPayment = async (req, res) => {
 
     // Update payment record with verification details
     payment.status = 'SUCCESS';
-    payment.razorpayPaymentId = razorpay_payment_id;
-    payment.razorpaySignature = razorpay_signature;
+    payment.stripePaymentId = paymentIntent.latest_charge || payment_intent_id;
     payment.paymentResponse = {
       ...payment.paymentResponse,
-      verification: verificationResult.data
+      verification: {
+        status: paymentIntent.status,
+        payment_method: paymentIntent.payment_method,
+        charges: paymentIntent.charges
+      }
     };
     payment.completedAt = new Date();
     await payment.save();
@@ -207,8 +213,7 @@ const verifyRazorpayPayment = async (req, res) => {
 
     // Prepare response data
     const responseData = {
-      payment_id: razorpay_payment_id,
-      order_id: razorpay_order_id,
+      payment_intent_id: payment_intent_id,
       status: 'SUCCESS',
       planName: payment.planName,
       billingPeriod: payment.billingPeriod
@@ -234,23 +239,23 @@ const verifyRazorpayPayment = async (req, res) => {
 
 /**
  * Get Payment Status
- * GET /api/payments/razorpay/status/:paymentId
+ * GET /api/payments/stripe/status/:paymentIntentId
  */
-const getRazorpayPaymentStatus = async (req, res) => {
+const getStripePaymentStatus = async (req, res) => {
   try {
-    const { paymentId } = req.params;
+    const { paymentIntentId } = req.params;
 
-    if (!paymentId) {
+    if (!paymentIntentId) {
       return res.status(400).json({
         success: false,
-        message: 'Payment ID is required'
+        message: 'Payment intent ID is required'
       });
     }
 
-    // Try to get payment details from Razorpay
-    const razorpayResult = await razorpayService.getPaymentDetails(paymentId);
+    // Try to get payment details from Stripe
+    const stripeResult = await stripeService.getPaymentIntent(paymentIntentId);
 
-    if (!razorpayResult.success) {
+    if (!stripeResult.success) {
       return res.status(404).json({
         success: false,
         message: 'Payment not found or failed to fetch details'
@@ -259,18 +264,18 @@ const getRazorpayPaymentStatus = async (req, res) => {
 
     // Also get payment record from database
     const payment = await Payment.findOne({ 
-      razorpayPaymentId: paymentId,
-      gateway: 'RAZORPAY'
+      stripePaymentIntentId: paymentIntentId,
+      gateway: 'STRIPE'
     });
 
     res.json({
       success: true,
       data: {
-        payment_status: razorpayResult.data.status,
-        payment_method: razorpayResult.data.method,
-        amount: razorpayResult.data.amount,
-        currency: razorpayResult.data.currency,
-        created_at: razorpayResult.data.created_at,
+        payment_status: stripeResult.data.status,
+        payment_method: stripeResult.data.payment_method_types,
+        amount: stripeResult.data.amount / 100, // Convert from cents
+        currency: stripeResult.data.currency.toUpperCase(),
+        created_at: new Date(stripeResult.data.created * 1000),
         database_status: payment ? payment.status : 'not_found'
       }
     });
@@ -286,25 +291,25 @@ const getRazorpayPaymentStatus = async (req, res) => {
 };
 
 /**
- * Check Razorpay Configuration
- * GET /api/payments/razorpay/config
+ * Check Stripe Configuration
+ * GET /api/payments/stripe/config
  */
-const checkRazorpayConfig = async (req, res) => {
+const checkStripeConfig = async (req, res) => {
   try {
-    const configResult = razorpayService.validateConfiguration();
+    const configResult = stripeService.validateConfiguration();
 
     res.json({
       success: configResult.success,
-      message: configResult.success ? 'Razorpay is configured' : 'Razorpay configuration is incomplete',
+      message: configResult.success ? 'Stripe is configured' : 'Stripe configuration is incomplete',
       data: {
-        keyId: configResult.keyId,
-        keySecret: configResult.keySecret,
+        secretKey: configResult.secretKey,
+        publishableKey: configResult.publishableKey,
         missingVars: configResult.missingVars || []
       }
     });
 
   } catch (error) {
-    console.error('❌ Error checking Razorpay configuration:', error);
+    console.error('❌ Error checking Stripe configuration:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to check configuration',
@@ -314,9 +319,9 @@ const checkRazorpayConfig = async (req, res) => {
 };
 
 module.exports = {
-  createRazorpayOrder,
-  verifyRazorpayPayment,
-  getRazorpayPaymentStatus,
-  checkRazorpayConfig
+  createStripePaymentIntent,
+  verifyStripePayment,
+  getStripePaymentStatus,
+  checkStripeConfig
 };
 

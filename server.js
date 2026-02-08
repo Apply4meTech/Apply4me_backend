@@ -58,7 +58,7 @@ const profileRoutes = require('./routes/profileRoutes');
 const applicationRoutes = require('./routes/applicationRoutes');
 const employeeDashboardRoutes = require('./routes/employeeDashboardRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
-const razorpayRoutes = require('./routes/razorpayRoutes');
+const stripeRoutes = require('./routes/stripeRoutes');
 const blogRoutes = require('./routes/blogRoutes');
 const newsletterRoutes = require('./routes/newsletterRoutes');
 
@@ -76,7 +76,7 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/employee', employeeDashboardRoutes);
 app.use('/api/settings', settingsRoutes);
-app.use('/api/payments/razorpay', razorpayRoutes);
+app.use('/api/payments/stripe', stripeRoutes);
 app.use('/api/blogs', blogRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 
