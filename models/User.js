@@ -247,7 +247,7 @@ const UserSchema = new mongoose.Schema({
     },
     billingPeriod: {
       type: String,
-      enum: ['monthly', 'quarterly'],
+      enum: ['monthly', 'quarterly', 'onetime'],
       default: null
     },
     startDate: {

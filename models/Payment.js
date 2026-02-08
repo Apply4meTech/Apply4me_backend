@@ -80,7 +80,7 @@ const paymentSchema = new mongoose.Schema({
   
   billingPeriod: {
     type: String,
-    enum: ['monthly', 'quarterly']
+    enum: ['monthly', 'quarterly', 'onetime']
   },
   
   // Additional metadata
