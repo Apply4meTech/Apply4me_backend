@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const Plan = require('../models/Plan');
+const Payment = require('../models/Payment');
 
 // Get current user profile (protected endpoint)
 const getProfile = async (req, res) => {
@@ -101,7 +103,80 @@ const updateProfile = async (req, res) => {
   }
 };
 
+// Get user's current plan/subscription (protected endpoint)
+const getMyPlan = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    // If user has no subscription, return null
+    if (!user.subscription || !user.subscription.planName) {
+      return res.json({
+        success: true,
+        data: null,
+        message: 'No active plan found'
+      });
+    }
+
+    // Get plan details from Plan collection
+    const plan = await Plan.findOne({ name: user.subscription.planName, isActive: true });
+    
+    // Get payment details if available
+    let paymentDetails = null;
+    if (user.subscription.paymentId) {
+      paymentDetails = await Payment.findById(user.subscription.paymentId)
+        .select('amount currency status completedAt');
+    }
+
+    // Check if subscription is expired
+    const now = new Date();
+    const isExpired = user.subscription.endDate && new Date(user.subscription.endDate) < now;
+    const status = isExpired ? 'expired' : (user.subscription.status || 'active');
+
+    res.json({
+      success: true,
+      data: {
+        plan: plan ? {
+          id: plan._id,
+          name: plan.name,
+          description: plan.description,
+          price: plan.price,
+          actualPrice: plan.actualPrice,
+          currency: plan.currency,
+          features: plan.features,
+          badge: plan.badge,
+          isPopular: plan.isPopular
+        } : {
+          name: user.subscription.planName,
+          // Fallback if plan is deleted
+        },
+        subscription: {
+          planName: user.subscription.planName,
+          billingPeriod: user.subscription.billingPeriod,
+          startDate: user.subscription.startDate,
+          endDate: user.subscription.endDate,
+          status: status
+        },
+        payment: paymentDetails
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching user plan:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch plan information' 
+    });
+  }
+};
+
 module.exports = {
   getProfile,
-  updateProfile
+  updateProfile,
+  getMyPlan
 };

@@ -30,6 +30,20 @@ const createStripePaymentIntent = async (req, res) => {
       });
     }
 
+    // Check if user already has an active plan
+    const user = await User.findById(req.userId);
+    if (user && user.subscription && user.subscription.planName) {
+      const now = new Date();
+      const isExpired = user.subscription.endDate && new Date(user.subscription.endDate) < now;
+      
+      if (!isExpired && user.subscription.status === 'active') {
+        return res.status(400).json({
+          success: false,
+          message: `You already have an active plan (${user.subscription.planName}). Please wait for it to expire or contact support to upgrade.`
+        });
+      }
+    }
+
     // Validate amount limits
     if (amount < 1 || amount > 50000) {
       return res.status(400).json({

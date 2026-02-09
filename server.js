@@ -61,6 +61,7 @@ const settingsRoutes = require('./routes/settingsRoutes');
 const stripeRoutes = require('./routes/stripeRoutes');
 const blogRoutes = require('./routes/blogRoutes');
 const newsletterRoutes = require('./routes/newsletterRoutes');
+const planRoutes = require('./routes/planRoutes');
 
 // Use Routes
 app.use('/', healthRoutes);
@@ -79,6 +80,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/payments/stripe', stripeRoutes);
 app.use('/api/blogs', blogRoutes);
 app.use('/api/newsletter', newsletterRoutes);
+app.use('/api/plans', planRoutes);
 
 // Serve dashboard 
 app.get('/dashboard', (req, res) => {

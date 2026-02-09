@@ -10,7 +10,8 @@ const {
   deleteJobFile, 
   deleteJob,
   assignJobToEmployee,
-  unassignJobFromEmployee
+  unassignJobFromEmployee,
+  updateJobNotes
 } = require('../controllers/jobManagementController');
 const {
   getEmployeeProfile,
@@ -117,6 +118,7 @@ router.delete('/profile/picture', deleteEmployeeProfilePicture);
 // Job management routes
 router.patch('/jobs/:jobId/status', updateJobStatus);
 router.patch('/jobs/:jobId/email', updateJobEmailData);
+router.patch('/jobs/:jobId/notes', updateJobNotes);
 router.patch('/jobs/:jobId/assign', assignJobToEmployee);
 router.patch('/jobs/:jobId/unassign', unassignJobFromEmployee);
 router.post('/jobs/:jobId/files/:fileType', uploadMiddleware, uploadJobFile);
