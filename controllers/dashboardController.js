@@ -49,7 +49,7 @@ const getDashboardData = async (req, res) => {
     const applications = await Job.find(jobQuery)
       .sort({ createdAt: -1 })
       .limit(10)
-      .select('title company location jobUrl platform status createdAt userId resume coverLetter screenshotProof')
+      .select('title company location jobUrl platform status createdAt userId resume coverLetter screenshotProof notes notesUpdatedAt')
       .lean();
 
     // Format applications
@@ -79,7 +79,9 @@ const getDashboardData = async (req, res) => {
           fileName: app.screenshotProof.fileName,
           uploadedAt: app.screenshotProof.uploadedAt
         } : null
-      }
+      },
+      notes: app.notes || '',
+      notesUpdatedAt: app.notesUpdatedAt || null
     }));
 
     res.json({

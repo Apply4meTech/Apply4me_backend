@@ -633,6 +633,79 @@ const unassignJobFromEmployee = async (req, res) => {
   }
 };
 
+/**
+ * Update job notes
+ * PATCH /api/employee/jobs/:jobId/notes
+ */
+const updateJobNotes = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { notes } = req.body;
+    const employeeId = req.employeeId;
+    const employee = req.employee;
+
+    // Find job
+    const job = await Job.findById(jobId);
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    // If not super admin, check if job is assigned to this employee
+    if (employee.role !== 'super_admin') {
+      if (!job.assignedTo || job.assignedTo.toString() !== employeeId.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'You do not have permission to update this job'
+        });
+      }
+    }
+
+    // Update notes
+    const updateData = {
+      notes: notes || '',
+      notesUpdatedAt: new Date(),
+      notesUpdatedBy: employeeId,
+      updatedAt: Date.now()
+    };
+
+    const updatedJob = await Job.findByIdAndUpdate(
+      jobId,
+      updateData,
+      { new: true }
+    )
+      .populate('userId', 'name email fullName')
+      .populate('assignedTo', 'name email')
+      .populate('notesUpdatedBy', 'name email')
+      .lean();
+
+    res.json({
+      success: true,
+      message: 'Notes updated successfully',
+      job: {
+        id: updatedJob._id,
+        notes: updatedJob.notes,
+        notesUpdatedAt: updatedJob.notesUpdatedAt,
+        notesUpdatedBy: updatedJob.notesUpdatedBy ? {
+          id: updatedJob.notesUpdatedBy._id,
+          name: updatedJob.notesUpdatedBy.name,
+          email: updatedJob.notesUpdatedBy.email
+        } : null
+      }
+    });
+  } catch (error) {
+    console.error('Error updating job notes:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update notes',
+      details: error.message
+    });
+  }
+};
+
 module.exports = {
   updateJobStatus,
   updateJobEmailData,
@@ -640,5 +713,6 @@ module.exports = {
   deleteJobFile,
   deleteJob,
   assignJobToEmployee,
-  unassignJobFromEmployee
+  unassignJobFromEmployee,
+  updateJobNotes
 };

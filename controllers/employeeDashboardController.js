@@ -57,7 +57,9 @@ const getEmployeeDashboardData = async (req, res) => {
       emailData: job.emailData || null,
       resume: job.resume || null,
       coverLetter: job.coverLetter || null,
-      screenshotProof: job.screenshotProof || null
+      screenshotProof: job.screenshotProof || null,
+      notes: job.notes || '',
+      notesUpdatedAt: job.notesUpdatedAt || null
     }));
 
     res.json({

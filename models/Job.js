@@ -74,6 +74,21 @@ const JobSchema = new mongoose.Schema({
     mimeType: { type: String, trim: true },
     uploadedAt: { type: Date }
   },
+  // Notes field for employee/user notes
+  notes: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  notesUpdatedAt: {
+    type: Date,
+    default: null
+  },
+  notesUpdatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee',
+    default: null
+  },
   createdAt: { type: Date, default: Date.now },
   savedAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }

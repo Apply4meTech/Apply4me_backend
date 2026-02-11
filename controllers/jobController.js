@@ -361,6 +361,75 @@ const getAllUsers = async (req, res) => {
   }
 };
 
+// Update job notes (for users)
+const updateJobNotes = async (req, res) => {
+  try {
+    const { notes } = req.body;
+    const userId = req.userId;
+    const jobId = req.params.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required'
+      });
+    }
+
+    // Find job and verify ownership
+    const job = await Job.findById(jobId);
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    // Check if user owns this job
+    const userEmail = req.user?.email?.toLowerCase();
+    const jobUserId = job.userId?.toString();
+    const jobUserEmail = job.userInfo?.email?.toLowerCase();
+
+    if (jobUserId !== userId.toString() && 
+        (!userEmail || jobUserEmail !== userEmail)) {
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to update this job'
+      });
+    }
+
+    // Update notes
+    const updateData = {
+      notes: notes || '',
+      notesUpdatedAt: new Date(),
+      updatedAt: Date.now()
+    };
+
+    const updatedJob = await Job.findByIdAndUpdate(
+      jobId,
+      updateData,
+      { new: true }
+    ).lean();
+
+    res.json({
+      success: true,
+      message: 'Notes updated successfully',
+      job: {
+        id: updatedJob._id,
+        notes: updatedJob.notes,
+        notesUpdatedAt: updatedJob.notesUpdatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error updating job notes:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update notes',
+      details: error.message
+    });
+  }
+};
+
 module.exports = {
   createJob,
   getAllJobs,
@@ -368,5 +437,6 @@ module.exports = {
   updateJobStatus,
   deleteJob,
   getJobsByUserInfo,
-  getAllUsers
+  getAllUsers,
+  updateJobNotes
 };

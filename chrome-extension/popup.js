@@ -1,59 +1,43 @@
-const API_URL = 'http://localhost:4000';
-
 document.addEventListener('DOMContentLoaded', async () => {
-  const statusEl = document.getElementById('status');
-  const testBtn = document.getElementById('testBtn');
-  const userNameEl = document.getElementById('userName');
-  const userProfileUrlEl = document.getElementById('userProfileUrl');
-  const userEmailEl = document.getElementById('userEmail');
-  const userPhoneEl = document.getElementById('userPhone');
+  const userIdEl = document.getElementById('userId');
   const saveInfoBtn = document.getElementById('saveInfoBtn');
   const infoMsgEl = document.getElementById('infoMsg');
 
-  // Load saved user info
-  loadUserInfo();
+  // Load saved user ID
+  loadUserId();
 
-  // Check connection on load
-  checkConnection();
+  saveInfoBtn.addEventListener('click', saveUserId);
 
-  testBtn.addEventListener('click', checkConnection);
-  saveInfoBtn.addEventListener('click', saveUserInfo);
-
-  async function loadUserInfo() {
+  async function loadUserId() {
     try {
-      const result = await chrome.storage.sync.get(['userName', 'userProfileUrl', 'userEmail', 'userPhone']);
-      if (result.userName) {
-        userNameEl.value = result.userName;
-      }
-      if (result.userProfileUrl) {
-        userProfileUrlEl.value = result.userProfileUrl;
-      }
-      if (result.userEmail) {
-        userEmailEl.value = result.userEmail;
-      }
-      if (result.userPhone) {
-        userPhoneEl.value = result.userPhone;
+      const result = await chrome.storage.sync.get(['userId']);
+      if (result.userId) {
+        userIdEl.value = result.userId;
       }
     } catch (error) {
-      console.error('Error loading user info:', error);
+      console.error('Error loading user ID:', error);
     }
   }
 
-  async function saveUserInfo() {
-    const name = userNameEl.value.trim();
-    const profileUrl = userProfileUrlEl.value.trim();
-    const email = userEmailEl.value.trim();
-    const phone = userPhoneEl.value.trim();
+  async function saveUserId() {
+    const userId = userIdEl.value.trim();
+
+    if (!userId) {
+      infoMsgEl.textContent = '✗ Please enter a user ID';
+      infoMsgEl.style.display = 'block';
+      infoMsgEl.style.color = '#ef4444';
+      setTimeout(() => {
+        infoMsgEl.style.display = 'none';
+      }, 2000);
+      return;
+    }
 
     try {
       await chrome.storage.sync.set({
-        userName: name || '',
-        userProfileUrl: profileUrl || '',
-        userEmail: email || '',
-        userPhone: phone || ''
+        userId: userId
       });
 
-      infoMsgEl.textContent = '✓ Contact info saved!';
+      infoMsgEl.textContent = '✓ User ID saved!';
       infoMsgEl.style.display = 'block';
       infoMsgEl.style.color = '#10b981';
       
@@ -64,28 +48,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       infoMsgEl.textContent = '✗ Failed to save';
       infoMsgEl.style.display = 'block';
       infoMsgEl.style.color = '#ef4444';
-      console.error('Error saving user info:', error);
-    }
-  }
-
-  async function checkConnection() {
-    statusEl.textContent = 'Checking...';
-    statusEl.className = 'status';
-
-    try {
-      const response = await fetch(`${API_URL}/`);
-      const data = await response.json();
-
-      if (response.ok) {
-        statusEl.textContent = '✓ Connected to API';
-        statusEl.className = 'status connected';
-      } else {
-        throw new Error('API not responding');
-      }
-    } catch (error) {
-      statusEl.textContent = '✗ Cannot connect to API';
-      statusEl.className = 'status';
-      console.error('Connection error:', error);
+      console.error('Error saving user ID:', error);
     }
   }
 });

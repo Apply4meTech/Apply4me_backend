@@ -7,7 +7,8 @@ const {
   updateJobStatus,
   deleteJob,
   getJobsByUserInfo,
-  getAllUsers
+  getAllUsers,
+  updateJobNotes
 } = require('../controllers/jobController');
 const { optionalAuth } = require('../middleware/optionalAuth');
 const { verifyToken } = require('../middleware/auth');
@@ -20,6 +21,7 @@ router.get('/users', getAllUsers); // Get all unique users
 router.get('/by-user', getJobsByUserInfo); // Get jobs by user email/phone
 router.get('/:id', getJobById);
 router.patch('/:id', updateJobStatus);
+router.patch('/:id/notes', verifyToken, updateJobNotes);
 router.delete('/:id', deleteJob);
 
 module.exports = router;

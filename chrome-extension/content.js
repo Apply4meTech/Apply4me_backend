@@ -5,8 +5,23 @@
   const API_URL = 'http://localhost:4000/api/jobs';
   const BUTTON_ID = 'job-manager-btn';
 
+  // Remove button if it exists
+  function removeButton() {
+    const existingBtn = document.getElementById(BUTTON_ID);
+    if (existingBtn) {
+      existingBtn.remove();
+      console.log('[Job Manager] Button removed');
+    }
+  }
+
   // Create button
   function createButton() {
+    // Check if we should show the button
+    if (!shouldShowButton()) {
+      removeButton();
+      return;
+    }
+
     // Prevent duplicate
     if (document.getElementById(BUTTON_ID)) {
       console.log('[Job Manager] Button already exists');
@@ -30,239 +45,6 @@
     // Always append to body as fixed position
     document.body.appendChild(btn);
     console.log('[Job Manager] Button created and added to page');
-  }
-
-  // Extract LinkedIn user information
-  function extractLinkedInUserInfo() {
-    const userInfo = {
-      name: '',
-      profileUrl: '',
-      email: '',
-      phone: ''
-    };
-
-    try {
-      console.log('[Job Manager] Starting LinkedIn user info extraction...');
-      
-      // Method 1: Try to get from global navigation (most reliable)
-      // LinkedIn uses various selectors for the profile link
-      const navSelectors = [
-        'nav[aria-label="Main navigation"]',
-        'nav.global-nav',
-        'header nav',
-        'nav',
-        '[role="navigation"]'
-      ];
-      
-      let globalNav = null;
-      for (const selector of navSelectors) {
-        globalNav = document.querySelector(selector);
-        if (globalNav) break;
-      }
-      
-      if (globalNav) {
-        console.log('[Job Manager] Found navigation, searching for profile link...');
-        // Look for profile link in nav - try multiple patterns
-        const profileLinkSelectors = [
-          'a[href*="/in/"]:not([href*="/jobs"]):not([href*="/company"]):not([href*="/search"])',
-          'a[data-control-name="nav.settings_signout"]',
-          'a[href^="/in/"]',
-          '.global-nav__me-photo',
-          '.global-nav__primary-link-me a'
-        ];
-        
-        let profileLink = null;
-        for (const selector of profileLinkSelectors) {
-          profileLink = globalNav.querySelector(selector);
-          if (profileLink && profileLink.href && profileLink.href.includes('/in/')) {
-            break;
-          }
-        }
-        
-        if (profileLink && profileLink.href) {
-          // Get profile URL
-          const href = profileLink.href;
-          if (href.includes('/in/')) {
-            userInfo.profileUrl = href.split('?')[0].split('#')[0];
-            console.log('[Job Manager] Found profile URL:', userInfo.profileUrl);
-          }
-          
-          // Try to get name from the link or nearby elements
-          let nameText = profileLink.innerText?.trim() || 
-                        profileLink.getAttribute('aria-label')?.replace(/Profile of\s*/i, '')?.replace(/View\s+profile\s+of\s*/i, '')?.trim() ||
-                        profileLink.textContent?.trim() ||
-                        profileLink.title?.trim();
-          
-          // If not found, look in parent or sibling elements
-          if (!nameText || nameText.length < 2) {
-            const parent = profileLink.closest('div, li, span, button');
-            if (parent) {
-              // Try multiple child selectors
-              const nameSelectors = ['span', 'div', 'h3', 'h4', 'p', '[class*="name"]'];
-              for (const sel of nameSelectors) {
-                const nameEl = parent.querySelector(sel);
-                if (nameEl) {
-                  const text = nameEl.innerText?.trim() || nameEl.textContent?.trim();
-                  if (text && text.length > 1 && text.length < 100) {
-                    nameText = text;
-                    break;
-                  }
-                }
-              }
-              // If still not found, try parent's text
-              if (!nameText || nameText.length < 2) {
-                nameText = parent.innerText?.trim() || parent.textContent?.trim();
-              }
-            }
-          }
-          
-          if (nameText && nameText.length > 1 && nameText.length < 100) {
-            // Filter out common non-name text
-            const lowerText = nameText.toLowerCase();
-            if (!lowerText.includes('profile') && 
-                !lowerText.includes('sign out') &&
-                !lowerText.includes('settings') &&
-                !lowerText.includes('view profile') &&
-                !lowerText.includes('me') &&
-                !lowerText.match(/^\d+$/) && // Not just numbers
-                (nameText.match(/^[A-Z][a-z]+\s+[A-Z]/) || nameText.match(/^[A-Z][a-z]+/))) { // Should have proper name format
-              userInfo.name = nameText;
-              console.log('[Job Manager] Found name:', userInfo.name);
-            }
-          }
-        }
-      }
-
-      // Method 2: Try to get from profile dropdown/menu area
-      if (!userInfo.name || !userInfo.profileUrl) {
-        console.log('[Job Manager] Trying method 2: profile dropdown...');
-        const profileSelectors = [
-          '.global-nav__me',
-          '[data-control-name="nav.settings_signout"]',
-          'button[aria-label*="Profile"]',
-          'a[aria-label*="Profile"]',
-          '[aria-label*="View profile"]',
-          '.global-nav__me-photo'
-        ];
-        
-        let profileElement = null;
-        for (const selector of profileSelectors) {
-          profileElement = document.querySelector(selector);
-          if (profileElement) break;
-        }
-        
-        if (profileElement) {
-          // Try to get name from nearby elements
-          const container = profileElement.closest('div, li, button, a');
-          if (container) {
-            // Look for name in various places
-            const nameSelectors = [
-              'h3', 'h4', 'span[class*="name"]', 
-              'div[class*="name"]', 'span', 'div',
-              '[aria-label*="profile"]'
-            ];
-            
-            for (const sel of nameSelectors) {
-              const nameEl = container.querySelector(sel);
-              if (nameEl) {
-                const nameText = nameEl.innerText?.trim() || 
-                                nameEl.textContent?.trim() ||
-                                nameEl.getAttribute('aria-label')?.replace(/View\s+profile\s+of\s*/i, '')?.trim();
-                if (nameText && nameText.length > 1 && nameText.length < 100 &&
-                    !nameText.toLowerCase().includes('profile') &&
-                    !nameText.toLowerCase().includes('sign out') &&
-                    !nameText.match(/^\d+$/)) {
-                  if (!userInfo.name) {
-                    userInfo.name = nameText;
-                    console.log('[Job Manager] Found name from dropdown:', userInfo.name);
-                  }
-                  break;
-                }
-              }
-            }
-            
-            // Try to get profile URL
-            const link = container.querySelector('a[href*="/in/"]') || container.closest('a[href*="/in/"]');
-            if (link && link.href && !userInfo.profileUrl) {
-              userInfo.profileUrl = link.href.split('?')[0].split('#')[0];
-              console.log('[Job Manager] Found profile URL from dropdown:', userInfo.profileUrl);
-            }
-          }
-        }
-      }
-
-      // Method 3: Try to get from any visible profile link (fallback)
-      if (!userInfo.profileUrl) {
-        console.log('[Job Manager] Trying method 3: searching all profile links...');
-        const allProfileLinks = document.querySelectorAll('a[href*="/in/"]:not([href*="/jobs"]):not([href*="/company"]):not([href*="/search"])');
-        for (const link of allProfileLinks) {
-          const href = link.href;
-          // Check if it's a user profile (not a company or job)
-          if (href.match(/\/in\/[^\/]+\/?$/) && !href.includes('?trk=job') && !href.includes('/in/in/')) {
-            userInfo.profileUrl = href.split('?')[0].split('#')[0];
-            console.log('[Job Manager] Found profile URL from all links:', userInfo.profileUrl);
-            
-            // Try to get name from link text
-            const nameText = link.innerText?.trim() || 
-                           link.textContent?.trim() ||
-                           link.getAttribute('aria-label')?.replace(/View\s+profile\s+of\s*/i, '')?.trim();
-            if (nameText && nameText.length > 1 && nameText.length < 100 &&
-                !nameText.toLowerCase().includes('profile') &&
-                !nameText.match(/^\d+$/) &&
-                !userInfo.name) {
-              userInfo.name = nameText;
-              console.log('[Job Manager] Found name from link:', userInfo.name);
-            }
-            break;
-          }
-        }
-      }
-
-      // Method 4: Try to extract from page metadata or window object
-      if (!userInfo.name || !userInfo.profileUrl) {
-        console.log('[Job Manager] Trying method 4: window state...');
-        try {
-          // Try various window object paths
-          const possiblePaths = [
-            window.__INITIAL_STATE__,
-            window.__APP_STATE__,
-            window.linkedin,
-            window.INITIAL_STATE
-          ];
-          
-          for (const state of possiblePaths) {
-            if (state) {
-              // Try to find user info in the state
-              const userData = state.default?.profileData || 
-                             state.profileData || 
-                             state.user ||
-                             state.default?.user ||
-                             state.included?.find(item => item.entityUrn?.includes('profile'));
-              
-              if (userData) {
-                if (userData.firstName && userData.lastName && !userInfo.name) {
-                  userInfo.name = `${userData.firstName} ${userData.lastName}`;
-                  console.log('[Job Manager] Found name from state:', userInfo.name);
-                }
-                if (userData.publicIdentifier && !userInfo.profileUrl) {
-                  userInfo.profileUrl = `https://www.linkedin.com/in/${userData.publicIdentifier}`;
-                  console.log('[Job Manager] Found profile URL from state:', userInfo.profileUrl);
-                }
-                break;
-              }
-            }
-          }
-        } catch (e) {
-          console.log('[Job Manager] Could not access window state:', e.message);
-        }
-      }
-
-      console.log('[Job Manager] Final extracted LinkedIn user info:', userInfo);
-    } catch (error) {
-      console.error('[Job Manager] Error extracting user info:', error);
-    }
-
-    return userInfo;
   }
 
   // Extract job data from LinkedIn page
@@ -749,30 +531,19 @@
         jobData.company = 'Unknown Company';
       }
       
-      // Extract LinkedIn user information (name and profile URL from page)
-      const linkedInUserInfo = extractLinkedInUserInfo();
+      // Get user ID from storage
+      const result = await chrome.storage.sync.get(['userId']);
+      const userId = result.userId;
       
-      // Get stored user contact info from Chrome storage (set via popup)
-      const storedUserInfo = await chrome.storage.sync.get(['userEmail', 'userPhone', 'userName', 'userProfileUrl']);
+      if (!userId) {
+        throw new Error('Please set your User ID in the extension popup first.');
+      }
       
-      // Combine extracted LinkedIn info with stored contact info
-      // Priority: Use stored info if available, otherwise use extracted info
-      jobData.userInfo = {
-        name: (storedUserInfo.userName || linkedInUserInfo.name || '').trim(),
-        profileUrl: (storedUserInfo.userProfileUrl || linkedInUserInfo.profileUrl || '').trim(),
-        email: (storedUserInfo.userEmail || linkedInUserInfo.email || '').trim(),
-        phone: (storedUserInfo.userPhone || linkedInUserInfo.phone || '').trim()
-      };
+      jobData.userId = userId;
 
       // Log what we're saving
       console.log('[Job Manager] Saving job data:', JSON.stringify(jobData, null, 2));
-      console.log('[Job Manager] User info being sent:', JSON.stringify(jobData.userInfo, null, 2));
-      console.log('[Job Manager] Stored user info from popup:', storedUserInfo);
-
-      // Get user ID from storage (default to demo-user)
-      const result = await chrome.storage.sync.get(['userId']);
-      const userId = result.userId || 'demo-user';
-      jobData.userId = userId;
+      console.log('[Job Manager] User ID:', userId);
 
       // Ensure location is not empty string if we couldn't find it
       if (!jobData.location || jobData.location.trim() === '') {
@@ -856,65 +627,266 @@
     }, 3000);
   }
 
-  // Check if we're on a LinkedIn jobs page
+  // Check if we're on a LinkedIn job detail page (where button should appear)
+  function shouldShowButton() {
+    const url = window.location.href;
+    
+    // Don't show on main jobs listing page
+    if (url === 'https://www.linkedin.com/jobs/' || 
+        url === 'https://www.linkedin.com/jobs' ||
+        url.match(/^https:\/\/www\.linkedin\.com\/jobs\/?$/)) {
+      return false;
+    }
+    
+    // Show on job detail page (/jobs/view/{id})
+    if (url.includes('/jobs/view/')) {
+      return true;
+    }
+    
+    // Show on search results page ONLY if a job is selected (has currentJobId)
+    if (url.includes('/jobs/search-results')) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const currentJobId = urlParams.get('currentJobId');
+      
+      // Only show if currentJobId exists
+      if (currentJobId) {
+        // Very lenient check - if we have currentJobId, show button
+        // The content might still be loading, but we'll show it anyway
+        // The retry mechanism will ensure it stays visible once content fully loads
+        
+        // Check if job details panel exists
+        const jobDetailsPanel = document.querySelector('.scaffold-layout__detail') ||
+                               document.querySelector('.jobs-search__job-details') ||
+                               document.querySelector('[data-test-id="job-details"]') ||
+                               document.querySelector('main .scaffold-layout__detail') ||
+                               document.querySelector('main > div > div:last-child');
+        
+        // If panel exists, definitely show button
+        if (jobDetailsPanel) {
+          return true;
+        }
+        
+        // Even if panel doesn't exist yet, if we have currentJobId, show button
+        // This handles the case where content is still loading after page load/refresh
+        // We'll keep checking and the button will remain visible once content loads
+        return true;
+      }
+      return false;
+    }
+    
+    // Fallback: check for job detail elements
+    const hasJobDetails = document.querySelector('[data-test-id="job-poster"]') ||
+                         document.querySelector('.jobs-details-top-card') ||
+                         document.querySelector('.job-details-jobs-unified-top-card');
+    
+    return !!hasJobDetails;
+  }
+  
+  // Check if we're on any LinkedIn jobs page (for initialization)
   function isLinkedInJobsPage() {
     const url = window.location.href;
-    return url.includes('linkedin.com/jobs') || 
-           url.includes('linkedin.com/job') ||
-           document.querySelector('[data-test-id="job-poster"]') ||
-           document.querySelector('.jobs-details') ||
-           document.querySelector('.job-details');
+    return url.includes('linkedin.com/jobs') || url.includes('linkedin.com/job');
   }
 
-  // Initialize
+  // Initialize or update button based on current page state
   function init() {
     console.log('[Job Manager] Initializing...', window.location.href);
     
     if (!isLinkedInJobsPage()) {
-      console.log('[Job Manager] Not a LinkedIn jobs page, skipping');
+      console.log('[Job Manager] Not a LinkedIn jobs page, removing button if exists');
+      removeButton();
       return;
     }
 
-    // Try to create button immediately
+    // Check if we should show button and create/remove accordingly
+    function checkAndUpdateButton() {
+      if (shouldShowButton()) {
+        if (!document.getElementById(BUTTON_ID)) {
+          createButton();
+        }
+      } else {
+        removeButton();
+      }
+    }
+    
+    // Make checkAndUpdateButton available globally for reuse
+    window.checkAndUpdateButton = checkAndUpdateButton;
+
+    // Try to create/update button immediately
     if (document.body) {
-      createButton();
+      checkAndUpdateButton();
     } else {
       // Wait for body
       const bodyObserver = new MutationObserver(() => {
         if (document.body) {
-          createButton();
+          checkAndUpdateButton();
           bodyObserver.disconnect();
         }
       });
       bodyObserver.observe(document.documentElement, { childList: true });
     }
 
-    // Multiple retry attempts for dynamic content
-    const retries = [500, 1000, 2000, 3000];
+    // Multiple retry attempts for dynamic content (with increasing delays)
+    // Start with shorter delays for faster initial appearance
+    const retries = [100, 300, 600, 1200, 2000, 3000, 5000];
     retries.forEach(delay => {
       setTimeout(() => {
-        if (!document.getElementById(BUTTON_ID)) {
-          console.log(`[Job Manager] Retry creating button after ${delay}ms`);
-          createButton();
-        }
+        checkAndUpdateButton();
       }, delay);
     });
 
-    // Watch for navigation changes (LinkedIn uses SPA)
+    // Watch for URL changes using multiple methods
     let lastUrl = location.href;
-    const urlObserver = new MutationObserver(() => {
-      const url = location.href;
-      if (url !== lastUrl) {
-        lastUrl = url;
-        console.log('[Job Manager] URL changed, re-initializing...');
-        setTimeout(() => {
-          if (!document.getElementById(BUTTON_ID) && isLinkedInJobsPage()) {
-            createButton();
+    
+    // Method 1: Listen to popstate (back/forward navigation)
+    window.addEventListener('popstate', () => {
+      setTimeout(() => {
+        const currentUrl = location.href;
+        if (currentUrl !== lastUrl) {
+          lastUrl = currentUrl;
+          console.log('[Job Manager] URL changed (popstate), re-checking...');
+          // Check immediately and then again after content loads
+          checkAndUpdateButton();
+          setTimeout(checkAndUpdateButton, 300);
+          setTimeout(checkAndUpdateButton, 800);
+        }
+      }, 50);
+    });
+
+    // Method 2: Watch for pushState/replaceState (SPA navigation)
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+    
+    history.pushState = function(...args) {
+      const result = originalPushState.apply(history, args);
+      setTimeout(() => {
+        const currentUrl = location.href;
+        if (currentUrl !== lastUrl) {
+          lastUrl = currentUrl;
+          console.log('[Job Manager] URL changed (pushState), re-checking...');
+          // Check multiple times to ensure button appears
+          checkAndUpdateButton();
+          setTimeout(checkAndUpdateButton, 200);
+          setTimeout(checkAndUpdateButton, 500);
+          setTimeout(checkAndUpdateButton, 1000);
+          // Also trigger full re-initialization
+          if (window.startInitialization) {
+            setTimeout(() => window.startInitialization(), 100);
           }
-        }, 1000);
+        }
+      }, 10); // Very short delay
+      return result;
+    };
+    
+    history.replaceState = function(...args) {
+      const result = originalReplaceState.apply(history, args);
+      setTimeout(() => {
+        const currentUrl = location.href;
+        if (currentUrl !== lastUrl) {
+          lastUrl = currentUrl;
+          console.log('[Job Manager] URL changed (replaceState), re-checking...');
+          checkAndUpdateButton();
+          setTimeout(checkAndUpdateButton, 200);
+          setTimeout(checkAndUpdateButton, 500);
+          setTimeout(checkAndUpdateButton, 1000);
+          // Also trigger full re-initialization
+          if (window.startInitialization) {
+            setTimeout(() => window.startInitialization(), 100);
+          }
+        }
+      }, 10);
+      return result;
+    };
+
+    // Method 3: Watch DOM changes for dynamic content loading (with debounce)
+    let checkTimeout = null;
+    const contentObserver = new MutationObserver((mutations) => {
+      // Only check if we're on a jobs page
+      if (isLinkedInJobsPage()) {
+        // Check if mutations are relevant (added nodes that might be job content)
+        const hasRelevantChanges = mutations.some(mutation => {
+          if (mutation.addedNodes.length > 0) {
+            // Check if any added node might be job-related
+            for (const node of mutation.addedNodes) {
+              if (node.nodeType === 1) { // Element node
+                // Convert className to string safely
+                const className = String(node.className || '');
+                const classList = node.classList;
+                
+                // Check if node or any child has job-related classes
+                if (className.includes('job') || 
+                    className.includes('detail') || 
+                    className.includes('scaffold-layout') ||
+                    (classList && (
+                      classList.contains('job') ||
+                      classList.contains('detail') ||
+                      classList.contains('scaffold-layout')
+                    ))) {
+                  return true;
+                }
+                
+                // Also check child elements quickly
+                if (node.querySelector && (
+                    node.querySelector('[class*="job"]') ||
+                    node.querySelector('[class*="detail"]') ||
+                    node.querySelector('[class*="scaffold-layout"]')
+                  )) {
+                  return true;
+                }
+              }
+            }
+          }
+          return false;
+        });
+        
+        // Debounce to avoid excessive checks, but check faster if relevant changes
+        clearTimeout(checkTimeout);
+        checkTimeout = setTimeout(() => {
+          checkAndUpdateButton();
+        }, hasRelevantChanges ? 150 : 300);
       }
     });
-    urlObserver.observe(document, { subtree: true, childList: true });
+    
+    // Observe changes to the main content area
+    if (document.body) {
+      contentObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: false // Only watch for structure changes, not attribute changes
+      });
+    }
+
+    // Method 4: Periodic check (fallback for edge cases)
+    // More frequent checks initially, then less frequent
+    let checkCount = 0;
+    const intervalId = setInterval(() => {
+      if (isLinkedInJobsPage()) {
+        const currentUrl = location.href;
+        if (currentUrl !== lastUrl) {
+          lastUrl = currentUrl;
+          checkAndUpdateButton();
+        } else {
+          // Even if URL hasn't changed, check button state (content might have loaded)
+          checkAndUpdateButton();
+        }
+        checkCount++;
+        // After 10 checks (20 seconds), reduce frequency to every 3 seconds
+        if (checkCount > 10) {
+          clearInterval(intervalId);
+          setInterval(() => {
+            if (isLinkedInJobsPage()) {
+              const currentUrl = location.href;
+              if (currentUrl !== lastUrl) {
+                lastUrl = currentUrl;
+                checkAndUpdateButton();
+              } else {
+                checkAndUpdateButton();
+              }
+            }
+          }, 3000);
+        }
+      }
+    }, 2000);
 
     // Expose debug function to window
     window.jobManagerDebug = () => {
@@ -922,23 +894,55 @@
       console.log('- URL:', window.location.href);
       console.log('- Button exists:', !!document.getElementById(BUTTON_ID));
       console.log('- Is jobs page:', isLinkedInJobsPage());
+      console.log('- Should show button:', shouldShowButton());
       console.log('- Body exists:', !!document.body);
-      if (!document.getElementById(BUTTON_ID) && isLinkedInJobsPage()) {
-        console.log('- Creating button now...');
-        createButton();
-      }
+      checkAndUpdateButton();
     };
   }
 
-  // Start when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
+  // Initialize immediately - don't wait for events
+  // This ensures the script runs as soon as it's injected
+  function startInitialization() {
+    // Run immediately
     init();
+    
+    // Run multiple times with increasing delays to catch all scenarios
+    const initDelays = [50, 100, 200, 500, 1000, 2000];
+    initDelays.forEach(delay => {
+      setTimeout(init, delay);
+    });
   }
 
-  // Also run on page load
+  // Start initialization based on document state
+  if (document.readyState === 'loading') {
+    // If still loading, wait for DOMContentLoaded
+    document.addEventListener('DOMContentLoaded', startInitialization);
+  } else {
+    // DOM is already ready, run immediately
+    startInitialization();
+  }
+
+  // Also run on page load (for full page reloads)
   window.addEventListener('load', () => {
-    setTimeout(init, 500);
+    setTimeout(init, 100);
   });
+
+  // CRITICAL: Watch for URL changes continuously
+  // This is the key to handling SPA navigation - polls every 500ms
+  let currentUrl = window.location.href;
+  const urlCheckInterval = setInterval(() => {
+    const newUrl = window.location.href;
+    if (newUrl !== currentUrl) {
+      currentUrl = newUrl;
+      console.log('[Job Manager] URL changed detected via polling:', newUrl);
+      // Re-initialize when URL changes
+      startInitialization();
+    }
+  }, 500); // Check every 500ms
+
+  // Also run immediately
+  startInitialization();
+  
+  // Make startInitialization available for history API hooks
+  window.startInitialization = startInitialization;
 })();
