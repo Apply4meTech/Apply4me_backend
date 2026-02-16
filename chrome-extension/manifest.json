@@ -5,12 +5,18 @@
   "description": "Save LinkedIn jobs to your application dashboard",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
     "https://www.linkedin.com/*",
-    "http://localhost:4000/*"
+    "http://localhost:4000/*",
+    "http://localhost:3000/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": [
