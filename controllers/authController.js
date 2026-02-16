@@ -291,10 +291,37 @@ const resetPassword = async (req, res) => {
   }
 };
 
+// Verify token controller (for Chrome extension)
+const verify = async (req, res) => {
+  try {
+    // User is already attached to req by verifyToken middleware
+    const user = req.user;
+    
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        isOnboardingComplete: user.isOnboardingComplete || false,
+        createdAt: user.createdAt
+      }
+    });
+  } catch (error) {
+    console.error('Error in verify:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to verify token',
+      details: error.message
+    });
+  }
+};
+
 module.exports = {
   signup,
   login,
   generateToken,
   forgotPassword,
-  resetPassword
+  resetPassword,
+  verify
 };

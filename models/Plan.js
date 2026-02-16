@@ -107,3 +107,4 @@ planSchema.virtual('discountPercentage').get(function() {
 const Plan = mongoose.model('Plan', planSchema);
 module.exports = Plan;
 
+

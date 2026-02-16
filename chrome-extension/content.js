@@ -15,36 +15,68 @@
   }
 
   // Create button
-  function createButton() {
-    // Check if we should show the button
-    if (!shouldShowButton()) {
-      removeButton();
-      return;
+  async function createButton() {
+    try {
+      // Check if we should show the button (URL check)
+      if (!shouldShowButton()) {
+        removeButton();
+        return;
+      }
+
+      // Prevent duplicate
+      if (document.getElementById(BUTTON_ID)) {
+        console.log('[Job Manager] Button already exists');
+        return;
+      }
+
+      // Make sure body exists
+      if (!document.body) {
+        console.log('[Job Manager] Body not ready, will retry');
+        setTimeout(() => createButton(), 200);
+        return;
+      }
+
+      console.log('[Job Manager] Creating button...');
+      
+      // Check authentication (but don't block button creation - will show error on save if not authenticated)
+      let isAuthenticated = false;
+      try {
+        const authData = await chrome.storage.local.get(['token', 'user']);
+        if (authData.token && authData.user) {
+          isAuthenticated = true;
+          console.log('[Job Manager] User authenticated');
+        } else {
+          console.log('[Job Manager] User not authenticated - button will show but save will require login');
+        }
+      } catch (error) {
+        console.error('[Job Manager] Error checking auth:', error);
+        // Continue to show button anyway
+      }
+
+      const btn = document.createElement('button');
+      btn.id = BUTTON_ID;
+      btn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 1L10.5 6L16 7L12 11L12.5 16.5L8 14L3.5 16.5L4 11L0 7L5.5 6L8 1Z" fill="currentColor"/>
+        </svg>
+        <span>Save to Job Manager</span>
+      `;
+      btn.className = 'job-manager-button';
+      
+      btn.addEventListener('click', handleSaveJob);
+      
+      // Always append to body as fixed position
+      document.body.appendChild(btn);
+      console.log('[Job Manager] Button created and added to page');
+    } catch (error) {
+      console.error('[Job Manager] Error creating button:', error);
+      // Retry after a short delay
+      setTimeout(() => {
+        if (shouldShowButton() && !document.getElementById(BUTTON_ID)) {
+          createButton();
+        }
+      }, 500);
     }
-
-    // Prevent duplicate
-    if (document.getElementById(BUTTON_ID)) {
-      console.log('[Job Manager] Button already exists');
-      return;
-    }
-
-    console.log('[Job Manager] Creating button...');
-
-    const btn = document.createElement('button');
-    btn.id = BUTTON_ID;
-    btn.innerHTML = `
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M8 1L10.5 6L16 7L12 11L12.5 16.5L8 14L3.5 16.5L4 11L0 7L5.5 6L8 1Z" fill="currentColor"/>
-      </svg>
-      <span>Save to Job Manager</span>
-    `;
-    btn.className = 'job-manager-button';
-    
-    btn.addEventListener('click', handleSaveJob);
-    
-    // Always append to body as fixed position
-    document.body.appendChild(btn);
-    console.log('[Job Manager] Button created and added to page');
   }
 
   // Extract job data from LinkedIn page
@@ -531,12 +563,19 @@
         jobData.company = 'Unknown Company';
       }
       
-      // Get user ID from storage
-      const result = await chrome.storage.sync.get(['userId']);
-      const userId = result.userId;
+      // Get authentication token from storage
+      const authData = await chrome.storage.local.get(['token', 'user']);
+      const token = authData.token;
+      const user = authData.user;
       
+      if (!token || !user) {
+        throw new Error('Please log in to ApplyForMe dashboard first. Click the extension icon to login.');
+      }
+      
+      // Extract userId from user object
+      const userId = user.id || user._id;
       if (!userId) {
-        throw new Error('Please set your User ID in the extension popup first.');
+        throw new Error('User information not found. Please log in again.');
       }
       
       jobData.userId = userId;
@@ -550,11 +589,12 @@
         jobData.location = 'Not specified';
       }
 
-      // Send to API
+      // Send to API with Authorization header
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(jobData)
       });
@@ -562,6 +602,12 @@
       const result_data = await response.json();
 
       if (!response.ok) {
+        // Handle authentication errors
+        if (response.status === 401) {
+          // Clear invalid auth data
+          await chrome.storage.local.remove(['token', 'user', 'lastAuthCheck']);
+          throw new Error('Session expired. Please log in again to ApplyForMe dashboard.');
+        }
         throw new Error(result_data.error || 'Failed to save job');
       }
 
@@ -699,13 +745,31 @@
     }
 
     // Check if we should show button and create/remove accordingly
-    function checkAndUpdateButton() {
-      if (shouldShowButton()) {
-        if (!document.getElementById(BUTTON_ID)) {
-          createButton();
+    async function checkAndUpdateButton() {
+      try {
+        if (shouldShowButton()) {
+          if (!document.getElementById(BUTTON_ID)) {
+            console.log('[Job Manager] Should show button, creating...');
+            await createButton();
+          } else {
+            console.log('[Job Manager] Button already exists');
+          }
+        } else {
+          console.log('[Job Manager] Should not show button, removing if exists');
+          removeButton();
         }
-      } else {
-        removeButton();
+      } catch (error) {
+        console.error('[Job Manager] Error in checkAndUpdateButton:', error);
+        // Retry once after a short delay
+        setTimeout(async () => {
+          try {
+            if (shouldShowButton() && !document.getElementById(BUTTON_ID)) {
+              await createButton();
+            }
+          } catch (retryError) {
+            console.error('[Job Manager] Retry also failed:', retryError);
+          }
+        }, 500);
       }
     }
     
@@ -928,21 +992,71 @@
   });
 
   // CRITICAL: Watch for URL changes continuously
-  // This is the key to handling SPA navigation - polls every 500ms
+  // This is the key to handling SPA navigation - polls every 300ms for faster detection
   let currentUrl = window.location.href;
   const urlCheckInterval = setInterval(() => {
     const newUrl = window.location.href;
     if (newUrl !== currentUrl) {
       currentUrl = newUrl;
       console.log('[Job Manager] URL changed detected via polling:', newUrl);
-      // Re-initialize when URL changes
-      startInitialization();
+      // Immediately check and update button
+      if (window.checkAndUpdateButton) {
+        window.checkAndUpdateButton();
+      }
+      // Also re-initialize for comprehensive coverage
+      setTimeout(() => {
+        init();
+      }, 100);
+    } else {
+      // Even if URL hasn't changed, periodically check button state
+      // This handles cases where content loads after URL change
+      if (window.checkAndUpdateButton && isLinkedInJobsPage()) {
+        window.checkAndUpdateButton();
+      }
     }
-  }, 500); // Check every 500ms
+  }, 300); // Check every 300ms for faster response
 
   // Also run immediately
   startInitialization();
   
   // Make startInitialization available for history API hooks
   window.startInitialization = startInitialization;
+  
+  // Listen for storage changes (when auth is updated)
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local') {
+      // If auth was added/updated, re-check button visibility
+      if (changes.token && changes.token.newValue && changes.user && changes.user.newValue) {
+        console.log('[Job Manager] Auth updated - checking button visibility');
+        if (window.checkAndUpdateButton) {
+          window.checkAndUpdateButton();
+        }
+      }
+      // Note: We don't remove button on logout - let user see it and get error message when trying to save
+    }
+  });
+  
+  // Listen for page visibility changes (when user switches back to tab)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && isLinkedInJobsPage()) {
+      console.log('[Job Manager] Page visible again, checking button');
+      setTimeout(() => {
+        if (window.checkAndUpdateButton) {
+          window.checkAndUpdateButton();
+        }
+      }, 200);
+    }
+  });
+  
+  // Listen for focus events (when user clicks back into the tab)
+  window.addEventListener('focus', () => {
+    if (isLinkedInJobsPage()) {
+      console.log('[Job Manager] Window focused, checking button');
+      setTimeout(() => {
+        if (window.checkAndUpdateButton) {
+          window.checkAndUpdateButton();
+        }
+      }, 200);
+    }
+  });
 })();
