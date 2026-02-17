@@ -79,8 +79,92 @@
     }
   }
 
+  // Check if we're on an Indeed page
+  function isIndeedPage() {
+    const url = window.location.href;
+    return url.includes('indeed.com');
+  }
+
+  // Extract job data from Indeed page
+  function extractIndeedJobData() {
+    const data = {
+      title: '',
+      company: '', // Empty string as requested for Indeed
+      location: '', // Empty string as requested for Indeed
+      jobUrl: window.location.href,
+      platform: 'indeed',
+      metadata: {},
+      timestamp: new Date().toISOString()
+    };
+
+    console.log('[Job Manager] Extracting Indeed job data...');
+    console.log('[Job Manager] Current URL:', window.location.href);
+
+    // Extract job title from Indeed page
+    // Indeed typically shows job title in h2 tags or specific classes
+    const titleSelectors = [
+      'h2[class*="jobTitle"]',
+      'h2.jobTitle',
+      'h2[data-testid="job-title"]',
+      '.jobsearch-JobInfoHeader-title h2',
+      '.jobsearch-JobInfoHeader-title',
+      'h2 a[data-jk]',
+      '[class*="jobTitle"] h2',
+      '[class*="jobTitle"]',
+      'h2'
+    ];
+
+    for (const selector of titleSelectors) {
+      const element = document.querySelector(selector);
+      if (element) {
+        // Get text from element, preferring direct text over nested text
+        let text = '';
+        if (element.tagName === 'A' && element.innerText.trim()) {
+          text = element.innerText.trim();
+        } else if (element.innerText.trim()) {
+          // For h2 elements, try to get text from the element itself or its first child link
+          const link = element.querySelector('a');
+          if (link && link.innerText.trim()) {
+            text = link.innerText.trim();
+          } else {
+            text = element.innerText.trim();
+          }
+        }
+        
+        if (text) {
+          // Clean up the text - remove extra whitespace
+          const cleanText = text.replace(/\s+/g, ' ').trim();
+          // Skip if it looks like a section heading or UI element
+          const lowerText = cleanText.toLowerCase();
+          if (cleanText.length > 3 && 
+              cleanText.length < 200 &&
+              !lowerText.includes('indeed') &&
+              !lowerText.includes('job search') &&
+              !lowerText.includes('profile insights')) {
+            data.title = cleanText;
+            console.log('[Job Manager] Found Indeed title:', data.title, 'using selector:', selector);
+            break;
+          }
+        }
+      }
+    }
+
+    // For Indeed, we keep company and location as empty strings as requested
+    // Only extract the URL (which may have vjk parameter)
+    const url = window.location.href;
+    data.jobUrl = url;
+
+    console.log('[Job Manager] Extracted Indeed data:', data);
+    return data;
+  }
+
   // Extract job data from LinkedIn page
   function extractJobData() {
+    // Check if we're on Indeed first
+    if (isIndeedPage()) {
+      return extractIndeedJobData();
+    }
+
     const data = {
       title: '',
       company: '',
@@ -531,6 +615,7 @@
 
     try {
       const jobData = extractJobData();
+      const isIndeed = isIndeedPage();
 
       // More lenient validation - allow saving even if some fields are missing
       // If we have a jobId, we can save with minimal data
@@ -538,29 +623,57 @@
       const currentJobId = urlParams.get('currentJobId');
       
       if (!jobData.title && !jobData.company && !currentJobId) {
-        const isSearchPage = window.location.href.includes('/jobs/search');
-        if (isSearchPage) {
-          throw new Error('Please click on a job in the list first to select it, then click "Save to Job Manager". Or navigate to the job detail page.');
+        if (isIndeed) {
+          throw new Error('Could not extract job details. Please make sure a job is selected on Indeed.');
         } else {
-          throw new Error('Could not extract job details. Please make sure you are on a job detail page.');
+          const isSearchPage = window.location.href.includes('/jobs/search');
+          if (isSearchPage) {
+            throw new Error('Please click on a job in the list first to select it, then click "Save to Job Manager". Or navigate to the job detail page.');
+          } else {
+            throw new Error('Could not extract job details. Please make sure you are on a job detail page.');
+          }
         }
       }
 
       // Set defaults if missing (but we have jobId)
       // Only set default title if we really can't find it
       if (!jobData.title || jobData.title.trim() === '') {
-        // Try one more time to get title from page
-        const titleEl = document.querySelector('h1.job-details-jobs-unified-top-card__job-title, h1.jobs-details-top-card__job-title, .jobs-details-top-card h1, main h1:first-of-type');
-        if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 3) {
-          jobData.title = titleEl.innerText.trim();
-        } else if (currentJobId) {
-          jobData.title = `Job #${currentJobId}`;
+        if (isIndeed) {
+          // For Indeed, try to get title from Indeed-specific selectors
+          const titleEl = document.querySelector('h2[class*="jobTitle"]') ||
+                         document.querySelector('h2.jobTitle') ||
+                         document.querySelector('h2[data-testid="job-title"]') ||
+                         document.querySelector('.jobsearch-JobInfoHeader-title h2') ||
+                         document.querySelector('.jobsearch-JobInfoHeader-title') ||
+                         document.querySelector('h2');
+          if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 3) {
+            jobData.title = titleEl.innerText.trim();
+          } else {
+            jobData.title = 'Untitled Job';
+          }
         } else {
-          jobData.title = 'Untitled Job';
+          // For LinkedIn, try LinkedIn-specific selectors
+          const titleEl = document.querySelector('h1.job-details-jobs-unified-top-card__job-title, h1.jobs-details-top-card__job-title, .jobs-details-top-card h1, main h1:first-of-type');
+          if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 3) {
+            jobData.title = titleEl.innerText.trim();
+          } else if (currentJobId) {
+            jobData.title = `Job #${currentJobId}`;
+          } else {
+            jobData.title = 'Untitled Job';
+          }
         }
       }
-      if (!jobData.company || jobData.company.trim() === '') {
-        jobData.company = 'Unknown Company';
+      
+      // For Indeed, keep company and location as empty strings (as requested)
+      // For LinkedIn, set defaults if missing
+      if (!isIndeed) {
+        if (!jobData.company || jobData.company.trim() === '') {
+          jobData.company = 'Unknown Company';
+        }
+      } else {
+        // Ensure Indeed keeps empty strings for company and location
+        jobData.company = '';
+        jobData.location = '';
       }
       
       // Get authentication token from storage
@@ -584,9 +697,11 @@
       console.log('[Job Manager] Saving job data:', JSON.stringify(jobData, null, 2));
       console.log('[Job Manager] User ID:', userId);
 
-      // Ensure location is not empty string if we couldn't find it
-      if (!jobData.location || jobData.location.trim() === '') {
-        jobData.location = 'Not specified';
+      // Ensure location is not empty string if we couldn't find it (only for LinkedIn)
+      if (!isIndeed) {
+        if (!jobData.location || jobData.location.trim() === '') {
+          jobData.location = 'Not specified';
+        }
       }
 
       // Send to API with Authorization header
@@ -677,6 +792,40 @@
   function shouldShowButton() {
     const url = window.location.href;
     
+    // Handle Indeed pages
+    if (isIndeedPage()) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const hasVjkParam = urlParams.has('vjk');
+      const hasJkParam = urlParams.has('jk');
+      const fromParam = urlParams.get('from');
+      
+      // Show button on /viewjob?jk=... pages
+      if (url.includes('/viewjob') && hasJkParam) {
+        return true;
+      }
+      
+      // Show button if vjk parameter exists (indicates a job is selected)
+      // This works for both from=gnav-homepage&vjk=... and from=gnav-viewjob&vjk=...
+      // Show immediately when vjk exists, don't wait for content to load
+      if (hasVjkParam) {
+        return true;
+      }
+      
+      // Don't show on Indeed homepage without vjk parameter
+      if (url === 'https://www.indeed.com/' || 
+          url === 'https://in.indeed.com/' ||
+          url.match(/^https:\/\/(www\.|in\.)?indeed\.com\/?(\?.*)?$/)) {
+        // Only hide if there's no vjk parameter
+        if (!hasVjkParam && !hasJkParam) {
+          return false;
+        }
+      }
+      
+      // Default: don't show for other Indeed pages without job selection
+      return false;
+    }
+    
+    // Handle LinkedIn pages (existing logic)
     // Don't show on main jobs listing page
     if (url === 'https://www.linkedin.com/jobs/' || 
         url === 'https://www.linkedin.com/jobs' ||
@@ -734,12 +883,23 @@
     return url.includes('linkedin.com/jobs') || url.includes('linkedin.com/job');
   }
 
+  // Check if we're on any Indeed page (for initialization)
+  function isIndeedJobsPage() {
+    const url = window.location.href;
+    return url.includes('indeed.com');
+  }
+
+  // Check if we're on any supported job platform
+  function isSupportedJobsPage() {
+    return isLinkedInJobsPage() || isIndeedJobsPage();
+  }
+
   // Initialize or update button based on current page state
   function init() {
     console.log('[Job Manager] Initializing...', window.location.href);
     
-    if (!isLinkedInJobsPage()) {
-      console.log('[Job Manager] Not a LinkedIn jobs page, removing button if exists');
+    if (!isSupportedJobsPage()) {
+      console.log('[Job Manager] Not a supported jobs page, removing button if exists');
       removeButton();
       return;
     }
@@ -865,8 +1025,8 @@
     // Method 3: Watch DOM changes for dynamic content loading (with debounce)
     let checkTimeout = null;
     const contentObserver = new MutationObserver((mutations) => {
-      // Only check if we're on a jobs page
-      if (isLinkedInJobsPage()) {
+        // Only check if we're on a jobs page
+        if (isSupportedJobsPage()) {
         // Check if mutations are relevant (added nodes that might be job content)
         const hasRelevantChanges = mutations.some(mutation => {
           if (mutation.addedNodes.length > 0) {
@@ -924,7 +1084,7 @@
     // More frequent checks initially, then less frequent
     let checkCount = 0;
     const intervalId = setInterval(() => {
-      if (isLinkedInJobsPage()) {
+      if (isSupportedJobsPage()) {
         const currentUrl = location.href;
         if (currentUrl !== lastUrl) {
           lastUrl = currentUrl;
@@ -938,7 +1098,7 @@
         if (checkCount > 10) {
           clearInterval(intervalId);
           setInterval(() => {
-            if (isLinkedInJobsPage()) {
+            if (isSupportedJobsPage()) {
               const currentUrl = location.href;
               if (currentUrl !== lastUrl) {
                 lastUrl = currentUrl;
@@ -957,7 +1117,9 @@
       console.log('[Job Manager] Debug Info:');
       console.log('- URL:', window.location.href);
       console.log('- Button exists:', !!document.getElementById(BUTTON_ID));
-      console.log('- Is jobs page:', isLinkedInJobsPage());
+      console.log('- Is LinkedIn page:', isLinkedInJobsPage());
+      console.log('- Is Indeed page:', isIndeedJobsPage());
+      console.log('- Is supported page:', isSupportedJobsPage());
       console.log('- Should show button:', shouldShowButton());
       console.log('- Body exists:', !!document.body);
       checkAndUpdateButton();
@@ -1010,7 +1172,7 @@
     } else {
       // Even if URL hasn't changed, periodically check button state
       // This handles cases where content loads after URL change
-      if (window.checkAndUpdateButton && isLinkedInJobsPage()) {
+      if (window.checkAndUpdateButton && isSupportedJobsPage()) {
         window.checkAndUpdateButton();
       }
     }
@@ -1038,7 +1200,7 @@
   
   // Listen for page visibility changes (when user switches back to tab)
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && isLinkedInJobsPage()) {
+    if (!document.hidden && isSupportedJobsPage()) {
       console.log('[Job Manager] Page visible again, checking button');
       setTimeout(() => {
         if (window.checkAndUpdateButton) {
@@ -1047,10 +1209,10 @@
       }, 200);
     }
   });
-  
+
   // Listen for focus events (when user clicks back into the tab)
   window.addEventListener('focus', () => {
-    if (isLinkedInJobsPage()) {
+    if (isSupportedJobsPage()) {
       console.log('[Job Manager] Window focused, checking button');
       setTimeout(() => {
         if (window.checkAndUpdateButton) {
