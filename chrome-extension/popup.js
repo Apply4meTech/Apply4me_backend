@@ -9,7 +9,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const userEmail = document.getElementById('userEmail');
   const errorMsg = document.getElementById('errorMsg');
 
-  const DASHBOARD_URL = 'http://localhost:3000/login';
+  const DASHBOARD_URL = 'https://applyforme.com.au/login';
 
   // Show loading state
   function showLoading() {

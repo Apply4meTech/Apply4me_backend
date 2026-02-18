@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Job Application Manager",
+  "name": "ApplyForMe Job Submitter",
   "version": "1.0.0",
-  "description": "Save LinkedIn and Indeed jobs to your application dashboard",
+  "description": "Assign jobs to ApplyForMe directly from any job site with one click.",
   "permissions": [
     "storage",
     "activeTab",
@@ -12,8 +12,9 @@
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://*.indeed.com/*",
-    "http://localhost:4000/*",
-    "http://localhost:3000/*"
+    "https://*.seek.com.au/*",
+    "https://api.applyforme.com.au/*",
+    "https://applyforme.com.au/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -22,7 +23,9 @@
     {
       "matches": [
         "https://www.linkedin.com/jobs/*",
-        "https://*.indeed.com/*"
+        "https://*.indeed.com/*",
+        "https://*.seek.com.au/*",
+        "https://*/*"
       ],
       "js": ["content.js"],
       "css": ["styles.css"],
@@ -31,7 +34,17 @@
     }
   ],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.jpg",
+      "48": "icon48.jpg",
+      "128": "icon128.jpg"
+    }
+  },
+  "icons": {
+    "16": "icon16.jpg",
+    "48": "icon48.jpg",
+    "128": "icon128.jpg"
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"

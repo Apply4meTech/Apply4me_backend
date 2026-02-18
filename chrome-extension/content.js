@@ -2,8 +2,8 @@
   'use strict';
 
   // Configuration
-  const API_URL = 'http://localhost:4000/api/jobs';
-  const BUTTON_ID = 'job-manager-btn';
+  const API_URL = 'https://api.applyforme.com.au/api/jobs';
+  const BUTTON_ID = 'applyforme-btn';
 
   // Remove button if it exists
   function removeButton() {
@@ -59,7 +59,7 @@
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M8 1L10.5 6L16 7L12 11L12.5 16.5L8 14L3.5 16.5L4 11L0 7L5.5 6L8 1Z" fill="currentColor"/>
         </svg>
-        <span>Save to Job Manager</span>
+        <span>Assign to ApplyForMe</span>
       `;
       btn.className = 'job-manager-button';
       
@@ -178,14 +178,15 @@
     console.log('[Job Manager] Extracting job data...');
     console.log('[Job Manager] Current URL:', window.location.href);
 
-    // Check if we're on search results page
-    const isSearchResults = window.location.href.includes('/jobs/search');
+    // Check if we're on search results page or collections/recommended page
+    const isSearchResults = window.location.href.includes('/jobs/search') || 
+                            window.location.href.includes('/jobs/collections/recommended');
     const urlParams = new URLSearchParams(window.location.search);
     const currentJobId = urlParams.get('currentJobId');
 
     console.log('[Job Manager] isSearchResults:', isSearchResults, 'currentJobId:', currentJobId);
 
-    // Try to extract from right panel (search results page)
+    // Try to extract from right panel (search results page or collections/recommended page)
     if (isSearchResults) {
       // Find the right panel/detail section
       const rightPanel = document.querySelector('.scaffold-layout__detail') ||
@@ -592,7 +593,7 @@
     // Always construct proper job URL from jobId if available
     if (currentJobId) {
       data.jobUrl = `https://www.linkedin.com/jobs/view/${currentJobId}`;
-    } else if (data.jobUrl.includes('search-results')) {
+    } else if (data.jobUrl.includes('search-results') || data.jobUrl.includes('collections/recommended')) {
       // Try to extract jobId from URL if not in params
       const jobIdMatch = data.jobUrl.match(/currentJobId=(\d+)/);
       if (jobIdMatch) {
@@ -626,9 +627,10 @@
         if (isIndeed) {
           throw new Error('Could not extract job details. Please make sure a job is selected on Indeed.');
         } else {
-          const isSearchPage = window.location.href.includes('/jobs/search');
+          const isSearchPage = window.location.href.includes('/jobs/search') || 
+                               window.location.href.includes('/jobs/collections/recommended');
           if (isSearchPage) {
-            throw new Error('Please click on a job in the list first to select it, then click "Save to Job Manager". Or navigate to the job detail page.');
+            throw new Error('Please click on a job in the list first to select it, then click "Assign to ApplyForMe". Or navigate to the job detail page.');
           } else {
             throw new Error('Could not extract job details. Please make sure you are on a job detail page.');
           }
@@ -649,7 +651,7 @@
           if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 3) {
             jobData.title = titleEl.innerText.trim();
           } else {
-            jobData.title = 'Untitled Job';
+            jobData.title = 'Job title Not found';
           }
         } else {
           // For LinkedIn, try LinkedIn-specific selectors
@@ -657,9 +659,9 @@
           if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 3) {
             jobData.title = titleEl.innerText.trim();
           } else if (currentJobId) {
-            jobData.title = `Job #${currentJobId}`;
+            jobData.title = 'Job title Not found';
           } else {
-            jobData.title = 'Untitled Job';
+            jobData.title = 'Job title Not found';
           }
         }
       }
@@ -668,7 +670,7 @@
       // For LinkedIn, set defaults if missing
       if (!isIndeed) {
         if (!jobData.company || jobData.company.trim() === '') {
-          jobData.company = 'Unknown Company';
+          jobData.company = 'Company name Not found';
         }
       } else {
         // Ensure Indeed keeps empty strings for company and location
@@ -682,7 +684,7 @@
       const user = authData.user;
       
       if (!token || !user) {
-        throw new Error('Please log in to ApplyForMe dashboard first. Click the extension icon to login.');
+        throw new Error('Please log in to ApplyForMe dashboard first. Click the extension icon to login. This extension is designed for ApplyForMe customers only.');
       }
       
       // Extract userId from user object
@@ -727,7 +729,7 @@
       }
 
       // Success feedback
-      btn.innerHTML = '<span>✓ Saved!</span>';
+      btn.innerHTML = '<span>✓ Assigned!</span>';
       btn.style.background = '#10b981';
       
       // Reset after 2 seconds
@@ -736,14 +738,14 @@
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M8 1L10.5 6L16 7L12 11L12.5 16.5L8 14L3.5 16.5L4 11L0 7L5.5 6L8 1Z" fill="currentColor"/>
           </svg>
-          <span>Save to Job Manager</span>
+          <span>Assign to ApplyForMe</span>
         `;
         btn.style.background = '';
         btn.disabled = false;
       }, 2000);
 
       // Show notification
-      showNotification('Job saved successfully!', 'success');
+      showNotification('Job assigned to ApplyForMe successfully!', 'success');
 
     } catch (error) {
       console.error('Error saving job:', error);
@@ -757,7 +759,7 @@
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M8 1L10.5 6L16 7L12 11L12.5 16.5L8 14L3.5 16.5L4 11L0 7L5.5 6L8 1Z" fill="currentColor"/>
           </svg>
-          <span>Save to Job Manager</span>
+          <span>Assign to ApplyForMe</span>
         `;
         btn.style.background = '';
         btn.disabled = false;
@@ -840,6 +842,38 @@
     
     // Show on search results page ONLY if a job is selected (has currentJobId)
     if (url.includes('/jobs/search-results')) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const currentJobId = urlParams.get('currentJobId');
+      
+      // Only show if currentJobId exists
+      if (currentJobId) {
+        // Very lenient check - if we have currentJobId, show button
+        // The content might still be loading, but we'll show it anyway
+        // The retry mechanism will ensure it stays visible once content fully loads
+        
+        // Check if job details panel exists
+        const jobDetailsPanel = document.querySelector('.scaffold-layout__detail') ||
+                               document.querySelector('.jobs-search__job-details') ||
+                               document.querySelector('[data-test-id="job-details"]') ||
+                               document.querySelector('main .scaffold-layout__detail') ||
+                               document.querySelector('main > div > div:last-child');
+        
+        // If panel exists, definitely show button
+        if (jobDetailsPanel) {
+          return true;
+        }
+        
+        // Even if panel doesn't exist yet, if we have currentJobId, show button
+        // This handles the case where content is still loading after page load/refresh
+        // We'll keep checking and the button will remain visible once content loads
+        return true;
+      }
+      return false;
+    }
+    
+    // Show on collections/recommended page (Jobs based on your activity) if a job is selected
+    // Also handle other collections pages like /jobs/collections/saved/, etc.
+    if (url.includes('/jobs/collections/')) {
       const urlParams = new URLSearchParams(window.location.search);
       const currentJobId = urlParams.get('currentJobId');
       
