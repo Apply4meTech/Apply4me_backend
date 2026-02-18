@@ -130,24 +130,38 @@ const updateJobEmailData = async (req, res) => {
       try {
         const { sendJobApplicationEmail } = require('../utils/emailService');
         const { getSignedUrl } = require('../utils/s3Service');
+        const User = require('../models/User');
         
         // Prepare attachments from job files
         // Use signed URLs for S3 files or direct URLs if public
         const attachments = [];
         
-        if (job.resume?.url) {
-          let attachmentUrl = job.resume.url;
+        // Get user to check for optimized resume
+        let resumeToUse = job.resume; // Default to job's resume
+        if (job.userId) {
+          const user = await User.findById(job.userId).select('atsReport resume_details');
+          // Prefer optimized resume if available, otherwise use original
+          if (user?.atsReport?.optimizedResumeDetails?.url) {
+            resumeToUse = user.atsReport.optimizedResumeDetails;
+          } else if (user?.resume_details?.url && !job.resume?.url) {
+            // If job doesn't have a resume but user has one, use user's resume
+            resumeToUse = user.resume_details;
+          }
+        }
+        
+        if (resumeToUse?.url) {
+          let attachmentUrl = resumeToUse.url;
           // If file is in S3 and has a key, generate signed URL
-          if (job.resume.key && !job.resume.url.includes('http')) {
+          if (resumeToUse.key && !resumeToUse.url.includes('http')) {
             try {
-              attachmentUrl = await getSignedUrl(job.resume.key, 3600); // 1 hour expiry
+              attachmentUrl = await getSignedUrl(resumeToUse.key, 3600); // 1 hour expiry
             } catch (signedUrlError) {
               console.error('Error generating signed URL for resume:', signedUrlError);
               // Fall back to original URL
             }
           }
           attachments.push({
-            filename: job.resume.fileName || 'resume.pdf',
+            filename: resumeToUse.fileName || 'resume.pdf',
             path: attachmentUrl
           });
         }
