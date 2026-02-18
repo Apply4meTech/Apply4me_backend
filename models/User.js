@@ -104,6 +104,27 @@ const UserSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  // Separate address fields for structured address
+  houseNumber: {
+    type: String,
+    trim: true
+  },
+  streetName: {
+    type: String,
+    trim: true
+  },
+  suburb: {
+    type: String,
+    trim: true
+  },
+  state: {
+    type: String,
+    trim: true
+  },
+  postcode: {
+    type: String,
+    trim: true
+  },
   openToRelocate: {
     type: Boolean,
     default: false

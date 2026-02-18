@@ -13,6 +13,12 @@ const saveOnboarding = async (req, res) => {
       phoneCode,
       phone,
       address,
+      // Separate address fields
+      houseNumber,
+      streetName,
+      suburb,
+      state,
+      postcode,
       openToRelocate,
       countryOfWork,
       visaSponsorshipRequired,
@@ -76,6 +82,12 @@ const saveOnboarding = async (req, res) => {
     if (phoneCode !== undefined) updateData.phoneCode = phoneCode;
     if (phone !== undefined) updateData.phone = phone;
     if (address !== undefined) updateData.address = address;
+    // Separate address fields
+    if (houseNumber !== undefined) updateData.houseNumber = houseNumber;
+    if (streetName !== undefined) updateData.streetName = streetName;
+    if (suburb !== undefined) updateData.suburb = suburb;
+    if (state !== undefined) updateData.state = state;
+    if (postcode !== undefined) updateData.postcode = postcode;
     if (openToRelocate !== undefined) {
       updateData.openToRelocate = openToRelocate === 'true' || openToRelocate === true;
     }
@@ -172,6 +184,11 @@ const saveOnboarding = async (req, res) => {
         phoneCode: updatedUser.phoneCode,
         phone: updatedUser.phone,
         address: updatedUser.address,
+        houseNumber: updatedUser.houseNumber,
+        streetName: updatedUser.streetName,
+        suburb: updatedUser.suburb,
+        state: updatedUser.state,
+        postcode: updatedUser.postcode,
         openToRelocate: updatedUser.openToRelocate,
         countryOfWork: updatedUser.countryOfWork,
         visaSponsorshipRequired: updatedUser.visaSponsorshipRequired,
@@ -235,6 +252,11 @@ const getOnboarding = async (req, res) => {
         phoneCode: user.phoneCode,
         phone: user.phone,
         address: user.address,
+        houseNumber: user.houseNumber,
+        streetName: user.streetName,
+        suburb: user.suburb,
+        state: user.state,
+        postcode: user.postcode,
         openToRelocate: user.openToRelocate,
         countryOfWork: user.countryOfWork,
         visaSponsorshipRequired: user.visaSponsorshipRequired,
