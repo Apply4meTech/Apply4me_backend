@@ -111,8 +111,28 @@ const getSignedUrl = async (key, expiresIn = 3600) => {
   }
 };
 
+/**
+ * Get file buffer from S3 by key (for processing e.g. resume customization)
+ * @param {String} key - S3 object key
+ * @returns {Promise<Buffer>} - File buffer
+ */
+const getFileBufferFromS3 = async (key) => {
+  try {
+    const params = {
+      Bucket: BUCKET_NAME,
+      Key: key,
+    };
+    const result = await s3.getObject(params).promise();
+    return result.Body;
+  } catch (error) {
+    console.error('Error getting file from S3:', error);
+    throw new Error(`Failed to get file from S3: ${error.message}`);
+  }
+};
+
 module.exports = {
   uploadFileToS3,
   deleteFileFromS3,
   getSignedUrl,
+  getFileBufferFromS3,
 };
