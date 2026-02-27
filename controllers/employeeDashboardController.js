@@ -33,34 +33,41 @@ const getEmployeeDashboardData = async (req, res) => {
       status: { $in: ['pending', 'assigned'] }
     });
 
-    // Get jobs with details
+    // Get jobs with details (include subscription.planName for customize-resume eligibility)
     const jobs = await Job.find(query)
-      .populate('userId', 'name email fullName')
+      .populate('userId', 'name email fullName subscription.planName')
       .populate('assignedTo', 'name email')
       .sort({ createdAt: -1 })
       .limit(100)
       .lean();
 
     // Format jobs
-    const formattedJobs = jobs.map(job => ({
-      id: job._id,
-      jobTitle: job.title,
-      company: job.company,
-      location: job.location,
-      applicant: job.userId ? (job.userId.fullName || job.userId.name || 'N/A') : 'N/A',
-      applicantEmail: job.userId ? job.userId.email : null,
-      assignedTo: job.assignedTo ? job.assignedTo.name : null,
-      status: job.status,
-      link: job.jobUrl,
-      date: job.createdAt,
-      platform: job.platform || 'Unknown',
-      emailData: job.emailData || null,
-      resume: job.resume || null,
-      coverLetter: job.coverLetter || null,
-      screenshotProof: job.screenshotProof || null,
-      notes: job.notes || '',
-      notesUpdatedAt: job.notesUpdatedAt || null
-    }));
+    const formattedJobs = jobs.map(job => {
+      const userPlanName = job.userId?.subscription?.planName || null;
+      const canCustomizeResume = userPlanName ? userPlanName !== 'Starter' : false;
+      return {
+        id: job._id,
+        jobTitle: job.title,
+        company: job.company,
+        location: job.location,
+        applicant: job.userId ? (job.userId.fullName || job.userId.name || 'N/A') : 'N/A',
+        applicantEmail: job.userId ? job.userId.email : null,
+        assignedTo: job.assignedTo ? job.assignedTo.name : null,
+        status: job.status,
+        link: job.jobUrl,
+        date: job.createdAt,
+        platform: job.platform || 'Unknown',
+        emailData: job.emailData || null,
+        resume: job.resume || null,
+        coverLetter: job.coverLetter || null,
+        screenshotProof: job.screenshotProof || null,
+        notes: job.notes || '',
+        notesUpdatedAt: job.notesUpdatedAt || null,
+        metadata: job.metadata || null,
+        userPlanName,
+        canCustomizeResume
+      };
+    });
 
     res.json({
       success: true,

@@ -52,37 +52,64 @@ const getDashboardData = async (req, res) => {
       .select('title company location jobUrl platform status createdAt userId resume coverLetter screenshotProof notes notesUpdatedAt')
       .lean();
 
+    // Get user's resume information for applications without attached resumes
+    const userResumeInfo = await User.findById(userId).select('resume_details atsReport.optimizedResumeDetails').lean();
+
     // Format applications
-    const formattedApplications = applications.map(app => ({
-      id: app._id,
-      jobName: app.title,
-      company: app.company,
-      location: app.location,
-      link: app.jobUrl || null, // Handle optional jobUrl
-      status: app.status,
-      source: app.platform || 'Unknown',
-      date: app.createdAt,
-      // Include file information
-      files: {
-        resume: app.resume?.url ? {
+    const formattedApplications = applications.map(app => {
+      // If job has a resume, use it; otherwise, use user's optimized resume (default) or original
+      let resumeToShow = null;
+      if (app.resume?.url) {
+        resumeToShow = {
           url: app.resume.url,
           fileName: app.resume.fileName,
-          uploadedAt: app.resume.uploadedAt
-        } : null,
-        coverLetter: app.coverLetter?.url ? {
-          url: app.coverLetter.url,
-          fileName: app.coverLetter.fileName,
-          uploadedAt: app.coverLetter.uploadedAt
-        } : null,
-        screenshotProof: app.screenshotProof?.url ? {
-          url: app.screenshotProof.url,
-          fileName: app.screenshotProof.fileName,
-          uploadedAt: app.screenshotProof.uploadedAt
-        } : null
-      },
-      notes: app.notes || '',
-      notesUpdatedAt: app.notesUpdatedAt || null
-    }));
+          uploadedAt: app.resume.uploadedAt,
+          type: 'job-attached'
+        };
+      } else if (userResumeInfo?.atsReport?.optimizedResumeDetails?.url) {
+        // Default to optimized resume if available
+        resumeToShow = {
+          url: userResumeInfo.atsReport.optimizedResumeDetails.url,
+          fileName: userResumeInfo.atsReport.optimizedResumeDetails.fileName,
+          uploadedAt: userResumeInfo.atsReport.optimizedResumeDetails.uploadedAt,
+          type: 'optimized'
+        };
+      } else if (userResumeInfo?.resume_details?.url) {
+        resumeToShow = {
+          url: userResumeInfo.resume_details.url,
+          fileName: userResumeInfo.resume_details.fileName,
+          uploadedAt: userResumeInfo.resume_details.uploadedAt,
+          type: 'original'
+        };
+      }
+
+      return {
+        id: app._id,
+        jobName: app.title,
+        company: app.company,
+        location: app.location,
+        link: app.jobUrl || null, // Handle optional jobUrl
+        status: app.status,
+        source: app.platform || 'Unknown',
+        date: app.createdAt,
+        // Include file information
+        files: {
+          resume: resumeToShow,
+          coverLetter: app.coverLetter?.url ? {
+            url: app.coverLetter.url,
+            fileName: app.coverLetter.fileName,
+            uploadedAt: app.coverLetter.uploadedAt
+          } : null,
+          screenshotProof: app.screenshotProof?.url ? {
+            url: app.screenshotProof.url,
+            fileName: app.screenshotProof.fileName,
+            uploadedAt: app.screenshotProof.uploadedAt
+          } : null
+        },
+        notes: app.notes || '',
+        notesUpdatedAt: app.notesUpdatedAt || null
+      };
+    });
 
     res.json({
       success: true,

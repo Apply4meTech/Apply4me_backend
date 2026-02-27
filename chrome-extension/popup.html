@@ -125,10 +125,40 @@
     .hidden {
       display: none;
     }
+    .url-section {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #e5e7eb;
+    }
+    .url-section h4 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: #333;
+    }
+    .url-section .hint {
+      font-size: 11px;
+      color: #6b7280;
+      margin-top: 4px;
+      margin-bottom: 8px;
+    }
+    #urlSubmitMsg {
+      font-size: 12px;
+      margin-top: 8px;
+      padding: 6px 8px;
+      border-radius: 4px;
+    }
+    #urlSubmitMsg.success {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    #urlSubmitMsg.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
   </style>
 </head>
 <body>
-  <h3>Job Application Manager</h3>
+  <h3>ApplyForMe Job Submitter</h3>
   
   <div id="loadingState" class="loading">
     Checking authentication...
@@ -144,7 +174,7 @@
       </div>
     </div>
     <div class="info">
-      Visit a LinkedIn job page and click "Save to Job Manager" button to save jobs.
+      Browse jobs on any website and click the extension button to assign jobs to ApplyForMe. Our team will apply on your behalf.
     </div>
   </div>
   
@@ -153,7 +183,7 @@
     <div class="user-info">
       <h4>Authentication Required</h4>
       <p class="info" style="margin-bottom: 12px;">
-        Please log in to your ApplyForMe dashboard to use this extension.
+        Please log in to your ApplyForMe dashboard to use this extension. This extension is designed for ApplyForMe customers only.
       </p>
       <button id="loginBtn" class="login-btn">Login to ApplyForMe</button>
     </div>
@@ -161,6 +191,15 @@
   
   <div id="errorState" class="hidden">
     <div class="error" id="errorMsg"></div>
+  </div>
+
+  <!-- Add job by URL - shown when not loading (works logged in or not; save requires login) -->
+  <div id="addByUrlSection" class="url-section hidden">
+    <h4>Add job by URL</h4>
+    <p class="hint">Paste any job or career page URL (LinkedIn, Indeed, or any company site).</p>
+    <input type="url" id="jobUrlInput" placeholder="https://example.com/careers/job-123" autocomplete="off" />
+    <button type="button" id="saveUrlBtn">Save to ApplyForMe</button>
+    <div id="urlSubmitMsg" class="hidden"></div>
   </div>
   
   <script src="popup.js"></script>

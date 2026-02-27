@@ -104,6 +104,27 @@ const UserSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  // Separate address fields for structured address
+  houseNumber: {
+    type: String,
+    trim: true
+  },
+  streetName: {
+    type: String,
+    trim: true
+  },
+  suburb: {
+    type: String,
+    trim: true
+  },
+  state: {
+    type: String,
+    trim: true
+  },
+  postcode: {
+    type: String,
+    trim: true
+  },
   openToRelocate: {
     type: Boolean,
     default: false
@@ -272,6 +293,101 @@ const UserSchema = new mongoose.Schema({
     paymentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Payment',
+      default: null
+    }
+  },
+  // ATS Resume Analysis Report
+  atsReport: {
+    score: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: null
+    },
+    analyzedAt: {
+      type: Date,
+      default: null
+    },
+    summary: {
+      type: String,
+      trim: true
+    },
+    recommendations: [{
+      category: {
+        type: String,
+        enum: ['formatting', 'keywords', 'structure', 'content', 'contact', 'other'],
+        default: 'other'
+      },
+      severity: {
+        type: String,
+        enum: ['high', 'medium', 'low'],
+        default: 'medium'
+      },
+      issue: {
+        type: String,
+        trim: true
+      },
+      suggestion: {
+        type: String,
+        trim: true
+      }
+    }],
+    strengths: [{
+      type: String,
+      trim: true
+    }],
+    weaknesses: [{
+      type: String,
+      trim: true
+    }],
+    originalResumeKey: {
+      type: String,
+      trim: true
+    },
+    optimizedResumeKey: {
+      type: String,
+      trim: true
+    },
+    optimizedResumeDetails: {
+      fileName: {
+        type: String,
+        trim: true
+      },
+      fileSize: {
+        type: Number
+      },
+      resourceId: {
+        type: String,
+        trim: true
+      },
+      url: {
+        type: String,
+        trim: true
+      },
+      key: {
+        type: String,
+        trim: true
+      },
+      bucket: {
+        type: String,
+        trim: true
+      },
+      mimeType: {
+        type: String,
+        trim: true
+      },
+      uploadedAt: {
+        type: Date
+      }
+    },
+    optimizedAt: {
+      type: Date,
+      default: null
+    },
+    optimizationScore: {
+      type: Number,
+      min: 0,
+      max: 100,
       default: null
     }
   }

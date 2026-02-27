@@ -11,10 +11,22 @@ const createJob = async (req, res) => {
     const { title, company, location, jobUrl, platform, metadata, userId: bodyUserId } = req.body;
 
     // Validate required fields - jobUrl is now optional for custom jobs
-    if (!title || !company) {
+    // For Indeed platform, company can be empty string
+    const detectedPlatform = platform || (jobUrl ? detectPlatformFromUrl(jobUrl) : 'custom');
+    const isIndeed = detectedPlatform === 'indeed';
+    
+    if (!title || title.trim() === '') {
       return res.status(400).json({ 
         success: false, 
-        error: 'Missing required fields: title and company are required' 
+        error: 'Missing required field: title is required' 
+      });
+    }
+    
+    // Company is required except for Indeed platform
+    if (!isIndeed && (!company || company.trim() === '')) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing required field: company is required' 
       });
     }
 
@@ -67,13 +79,8 @@ const createJob = async (req, res) => {
       console.log(`🔗 Using userId from authenticated user: ${userId}`);
     }
     
-    // Detect platform from URL if not provided
-    let detectedPlatform = platform;
-    if (!detectedPlatform && jobUrl) {
-      detectedPlatform = detectPlatformFromUrl(jobUrl);
-    } else if (!detectedPlatform) {
-      detectedPlatform = 'custom'; // Default for jobs without URL
-    }
+    // Use the detected platform (already detected above for validation)
+    const finalPlatform = detectedPlatform;
 
     // Log user info for tracking
     console.log('👤 Job creation request:', {
@@ -83,9 +90,9 @@ const createJob = async (req, res) => {
       email: cleanedUserInfo.email || 'N/A',
       phone: cleanedUserInfo.phone || 'N/A',
       jobTitle: title,
-      company: company,
+      company: isIndeed ? '(empty for Indeed)' : company,
       location: location || 'N/A',
-      platform: detectedPlatform,
+      platform: finalPlatform,
       hasUrl: !!jobUrl,
       hasToken: !!req.userId,
       rawUserInfo: userInfo
@@ -93,10 +100,10 @@ const createJob = async (req, res) => {
 
     const job = await Job.create({
       title,
-      company,
+      company: isIndeed ? '' : (company || ''), // Empty string for Indeed, otherwise use provided company (with fallback)
       location: location || '',
       jobUrl: jobUrl || undefined, // Only include if provided
-      platform: detectedPlatform,
+      platform: finalPlatform,
       metadata: metadata || {},
       userId: userId || null,
       userInfo: Object.keys(cleanedUserInfo).length > 0 ? cleanedUserInfo : {}

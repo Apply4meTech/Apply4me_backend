@@ -8,8 +8,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const userName = document.getElementById('userName');
   const userEmail = document.getElementById('userEmail');
   const errorMsg = document.getElementById('errorMsg');
+  const addByUrlSection = document.getElementById('addByUrlSection');
+  const jobUrlInput = document.getElementById('jobUrlInput');
+  const saveUrlBtn = document.getElementById('saveUrlBtn');
+  const urlSubmitMsg = document.getElementById('urlSubmitMsg');
 
-  const DASHBOARD_URL = 'http://localhost:3000/login';
+  const DASHBOARD_URL = 'https://applyforme.com.au/login';
+  const API_JOBS_URL = 'https://api.applyforme.com.au/api/jobs';
 
   // Show loading state
   function showLoading() {
@@ -17,6 +22,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     authenticatedState.classList.add('hidden');
     unauthenticatedState.classList.add('hidden');
     errorState.classList.add('hidden');
+    if (addByUrlSection) addByUrlSection.classList.add('hidden');
   }
 
   // Show authenticated state
@@ -25,7 +31,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     authenticatedState.classList.remove('hidden');
     unauthenticatedState.classList.add('hidden');
     errorState.classList.add('hidden');
-    
+    if (addByUrlSection) addByUrlSection.classList.remove('hidden');
     if (user) {
       userName.textContent = user.name || 'User';
       userEmail.textContent = user.email || '';
@@ -38,6 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     authenticatedState.classList.add('hidden');
     unauthenticatedState.classList.remove('hidden');
     errorState.classList.add('hidden');
+    if (addByUrlSection) addByUrlSection.classList.remove('hidden');
   }
 
   // Show error state
@@ -46,7 +53,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     authenticatedState.classList.add('hidden');
     unauthenticatedState.classList.add('hidden');
     errorState.classList.remove('hidden');
+    if (addByUrlSection) addByUrlSection.classList.remove('hidden');
     errorMsg.textContent = message || 'An error occurred';
+  }
+
+  function showUrlMessage(text, isError) {
+    if (!urlSubmitMsg) return;
+    urlSubmitMsg.textContent = text;
+    urlSubmitMsg.classList.remove('hidden', 'success', 'error');
+    urlSubmitMsg.classList.add(isError ? 'error' : 'success');
+  }
+
+  function hideUrlMessage() {
+    if (urlSubmitMsg) {
+      urlSubmitMsg.classList.add('hidden');
+      urlSubmitMsg.textContent = '';
+    }
   }
 
   // Check authentication status
@@ -100,6 +122,91 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (error) {
       console.error('Error opening login page:', error);
       showError('Failed to open login page');
+    }
+  });
+
+  // Handle "Save to ApplyForMe" for manual URL
+  saveUrlBtn.addEventListener('click', async () => {
+    const url = (jobUrlInput && jobUrlInput.value) ? jobUrlInput.value.trim() : '';
+    hideUrlMessage();
+
+    if (!url) {
+      showUrlMessage('Please enter a job or career page URL.', true);
+      return;
+    }
+
+    // Basic URL validation
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(url);
+    } catch (e) {
+      showUrlMessage('Please enter a valid URL (e.g. https://example.com/careers).', true);
+      return;
+    }
+    if (!parsedUrl.protocol || !['http:', 'https:'].includes(parsedUrl.protocol)) {
+      showUrlMessage('URL must start with http:// or https://', true);
+      return;
+    }
+
+    const authData = await chrome.storage.local.get(['token', 'user']);
+    const token = authData.token;
+    const user = authData.user;
+
+    if (!token || !user) {
+      showUrlMessage('Please log in to ApplyForMe dashboard first. Click "Login to ApplyForMe" above.', true);
+      return;
+    }
+
+    const userId = user.id || user._id;
+    if (!userId) {
+      showUrlMessage('User information not found. Please log in again.', true);
+      return;
+    }
+
+    const hostname = parsedUrl.hostname || 'custom';
+    const title = 'Job from ' + hostname;
+    const company = hostname;
+
+    saveUrlBtn.disabled = true;
+    saveUrlBtn.textContent = 'Saving...';
+
+    try {
+      const response = await fetch(API_JOBS_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token
+        },
+        body: JSON.stringify({
+          title,
+          company,
+          location: '',
+          jobUrl: url,
+          platform: 'custom',
+          metadata: {},
+          userId
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        showUrlMessage('Job saved! It will appear in your dashboard.');
+        if (jobUrlInput) jobUrlInput.value = '';
+      } else {
+        if (response.status === 401) {
+          await chrome.storage.local.remove(['token', 'user', 'lastAuthCheck']);
+          showUrlMessage('Session expired. Please log in again.', true);
+        } else {
+          showUrlMessage(data.error || 'Failed to save job.', true);
+        }
+      }
+    } catch (err) {
+      console.error('Error saving job by URL:', err);
+      showUrlMessage('Network error. Please try again.', true);
+    } finally {
+      saveUrlBtn.disabled = false;
+      saveUrlBtn.textContent = 'Save to ApplyForMe';
     }
   });
 

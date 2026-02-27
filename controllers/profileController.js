@@ -48,6 +48,7 @@ const getProfile = async (req, res) => {
         equityPreference: user.equityPreference,
         // Step 3: Documents & Links
         resume_details: user.resume_details || null,
+        optimizedResumeDetails: user.atsReport?.optimizedResumeDetails || null,
         cv_details: user.cv_details || null,
         portfolioWebsite: user.portfolioWebsite,
         github: user.github,
@@ -220,6 +221,7 @@ const updateProfile = async (req, res) => {
         preferredSalaryMax: updatedUser.preferredSalaryMax,
         equityPreference: updatedUser.equityPreference,
         resume_details: updatedUser.resume_details || null,
+        optimizedResumeDetails: updatedUser.atsReport?.optimizedResumeDetails || null,
         cv_details: updatedUser.cv_details || null,
         portfolioWebsite: updatedUser.portfolioWebsite,
         github: updatedUser.github,

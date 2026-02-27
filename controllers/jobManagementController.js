@@ -1,5 +1,8 @@
 const Job = require('../models/Job');
-const { uploadFileToS3, deleteFileFromS3 } = require('../utils/s3Service');
+const { uploadFileToS3, deleteFileFromS3, getSignedUrl, getFileBufferFromS3 } = require('../utils/s3Service');
+const { extractResumeText } = require('../utils/resumeExtractor');
+const { customizeResumeForJob } = require('../utils/resumeCustomizer');
+const { generateATSFriendlyPDF } = require('../utils/pdfGenerator');
 
 /**
  * Update job status
@@ -130,24 +133,38 @@ const updateJobEmailData = async (req, res) => {
       try {
         const { sendJobApplicationEmail } = require('../utils/emailService');
         const { getSignedUrl } = require('../utils/s3Service');
+        const User = require('../models/User');
         
         // Prepare attachments from job files
         // Use signed URLs for S3 files or direct URLs if public
         const attachments = [];
         
-        if (job.resume?.url) {
-          let attachmentUrl = job.resume.url;
+        // Get user to check for optimized resume
+        let resumeToUse = job.resume; // Default to job's resume
+        if (job.userId) {
+          const user = await User.findById(job.userId).select('atsReport resume_details');
+          // Prefer optimized resume if available, otherwise use original
+          if (user?.atsReport?.optimizedResumeDetails?.url) {
+            resumeToUse = user.atsReport.optimizedResumeDetails;
+          } else if (user?.resume_details?.url && !job.resume?.url) {
+            // If job doesn't have a resume but user has one, use user's resume
+            resumeToUse = user.resume_details;
+          }
+        }
+        
+        if (resumeToUse?.url) {
+          let attachmentUrl = resumeToUse.url;
           // If file is in S3 and has a key, generate signed URL
-          if (job.resume.key && !job.resume.url.includes('http')) {
+          if (resumeToUse.key && !resumeToUse.url.includes('http')) {
             try {
-              attachmentUrl = await getSignedUrl(job.resume.key, 3600); // 1 hour expiry
+              attachmentUrl = await getSignedUrl(resumeToUse.key, 3600); // 1 hour expiry
             } catch (signedUrlError) {
               console.error('Error generating signed URL for resume:', signedUrlError);
               // Fall back to original URL
             }
           }
           attachments.push({
-            filename: job.resume.fileName || 'resume.pdf',
+            filename: resumeToUse.fileName || 'resume.pdf',
             path: attachmentUrl
           });
         }
@@ -706,6 +723,181 @@ const updateJobNotes = async (req, res) => {
   }
 };
 
+/**
+ * Update job metadata (e.g. job description pasted by employee)
+ * PATCH /api/employee/jobs/:jobId/metadata
+ * Body: { description } (optional: salary, requirements)
+ */
+const updateJobMetadata = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { description, salary, requirements } = req.body;
+    const employeeId = req.employeeId;
+    const employee = req.employee;
+
+    const job = await Job.findById(jobId);
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    if (employee.role !== 'super_admin') {
+      if (!job.assignedTo || job.assignedTo.toString() !== employeeId.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'You do not have permission to update this job'
+        });
+      }
+    }
+
+    const updateData = { updatedAt: Date.now() };
+    if (job.metadata && typeof job.metadata === 'object') {
+      updateData.metadata = { ...job.metadata };
+    } else {
+      updateData.metadata = {};
+    }
+    if (description !== undefined) updateData.metadata.description = description;
+    if (salary !== undefined) updateData.metadata.salary = salary;
+    if (requirements !== undefined) updateData.metadata.requirements = requirements;
+
+    const updatedJob = await Job.findByIdAndUpdate(
+      jobId,
+      updateData,
+      { new: true }
+    ).lean();
+
+    res.json({
+      success: true,
+      message: 'Job metadata updated successfully',
+      metadata: updatedJob.metadata || null
+    });
+  } catch (error) {
+    console.error('Error updating job metadata:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update job metadata',
+      details: error.message
+    });
+  }
+};
+
+/**
+ * Generate customized resume for job (non-Starter plans only)
+ * POST /api/employee/jobs/:jobId/customize-resume
+ * Returns download URL and fileName. Employee downloads then uploads to job + screenshot.
+ */
+const customizeResume = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { description: descriptionFromBody } = req.body || {};
+    const employeeId = req.employeeId;
+    const employee = req.employee;
+
+    const job = await Job.findById(jobId).populate('userId', 'subscription.planName resume_details atsReport.optimizedResumeDetails');
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    if (employee.role !== 'super_admin') {
+      if (!job.assignedTo || job.assignedTo.toString() !== employeeId.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'You do not have permission to customize resume for this job'
+        });
+      }
+    }
+
+    const user = job.userId;
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        error: 'Job has no associated user'
+      });
+    }
+
+    const planName = user.subscription?.planName || null;
+    if (!planName || planName === 'Starter') {
+      return res.status(403).json({
+        success: false,
+        error: 'Customized resume is only available for Standard, Pro, and Premium plans. This user is on Starter plan.'
+      });
+    }
+
+    // Resolve user's resume: prefer optimized, else resume_details (from populated userId)
+    const resumeDetails = user.atsReport?.optimizedResumeDetails || user.resume_details;
+    if (!resumeDetails || !resumeDetails.key) {
+      return res.status(400).json({
+        success: false,
+        error: 'User has no resume on file. Please ensure the user has uploaded a resume.'
+      });
+    }
+
+    let resumeBuffer;
+    try {
+      resumeBuffer = await getFileBufferFromS3(resumeDetails.key);
+    } catch (err) {
+      console.error('Error fetching resume from S3:', err);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to load user resume'
+      });
+    }
+
+    const resumeText = await extractResumeText(resumeBuffer, resumeDetails.mimeType || 'application/pdf');
+    if (!resumeText || resumeText.trim().length < 50) {
+      return res.status(400).json({
+        success: false,
+        error: 'Could not extract enough text from the resume. Ensure the file is a valid PDF or DOCX.'
+      });
+    }
+
+    // Use description from request body (e.g. unsaved paste) or from job.metadata
+    const jobDescription = (typeof descriptionFromBody === 'string' && descriptionFromBody.trim())
+      ? descriptionFromBody.trim()
+      : ((job.metadata && job.metadata.description) || job.title || '');
+    if (!jobDescription || jobDescription.length < 20) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please add or paste the job description (at least 20 characters) in Fill Data, then try again.'
+      });
+    }
+
+    const customizedText = await customizeResumeForJob(resumeText, jobDescription.trim());
+    const pdfBuffer = await generateATSFriendlyPDF(customizedText);
+
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const timeStr = now.toTimeString().slice(0, 5).replace(':', '');
+    const jobIdShort = job._id.toString().slice(-6);
+    const fileName = `Resume_${jobIdShort}_${dateStr}_${timeStr}.pdf`;
+
+    const folder = 'customized-resumes';
+    const uploadResult = await uploadFileToS3(pdfBuffer, fileName, 'application/pdf', folder);
+
+    const downloadUrl = await getSignedUrl(uploadResult.key, 3600);
+
+    res.json({
+      success: true,
+      message: 'Customized resume generated. Download and upload it to this job, then upload screenshot proof.',
+      downloadUrl,
+      fileName: uploadResult.fileName,
+      expiresIn: 3600
+    });
+  } catch (error) {
+    console.error('Error customizing resume:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to generate customized resume',
+      details: error.message
+    });
+  }
+};
+
 module.exports = {
   updateJobStatus,
   updateJobEmailData,
@@ -714,5 +906,7 @@ module.exports = {
   deleteJob,
   assignJobToEmployee,
   unassignJobFromEmployee,
-  updateJobNotes
+  updateJobNotes,
+  updateJobMetadata,
+  customizeResume
 };

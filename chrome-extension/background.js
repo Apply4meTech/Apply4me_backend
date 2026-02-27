@@ -2,9 +2,9 @@
 // This script runs in the background and checks for authentication status
 
 const DASHBOARD_DOMAINS = [
+  'https://applyforme.com.au',
   'http://localhost:3000',
   'https://localhost:3000',
-  // Add production domains here when deploying
 ];
 
 const CHECK_INTERVAL = 2000; // Check every 2 seconds
@@ -50,9 +50,9 @@ async function getAuthFromDashboard() {
             // Check if user has logged out (token/user are null or empty)
             if (!token || !user || token === 'null' || user === 'null') {
               // User has logged out - clear extension storage immediately
-              console.log('[Job Manager] Logout detected in dashboard, clearing extension auth');
+              console.log('[ApplyForMe] Logout detected in dashboard, clearing extension auth');
               chrome.storage.local.remove(['token', 'user', 'lastAuthCheck']).then(() => {
-                console.log('[Job Manager] Extension auth cleared after logout');
+                console.log('[ApplyForMe] Extension auth cleared after logout');
               });
               return null;
             }
@@ -66,7 +66,7 @@ async function getAuthFromDashboard() {
                 lastAuthCheck: Date.now()
               });
               
-              console.log('[Job Manager] Auth data synced from dashboard');
+              console.log('[ApplyForMe] Auth data synced from dashboard');
               return { token, user: JSON.parse(user) };
             }
           }
@@ -79,7 +79,7 @@ async function getAuthFromDashboard() {
     
     // If we found dashboard tabs but no auth, user has logged out
     if (foundDashboardTab && !hasAuthInDashboard) {
-      console.log('[Job Manager] Dashboard tab found but no auth - user logged out');
+      console.log('[ApplyForMe] Dashboard tab found but no auth - user logged out');
       await chrome.storage.local.remove(['token', 'user', 'lastAuthCheck']);
       return null;
     }
@@ -102,7 +102,7 @@ async function getAuthFromDashboard() {
     await chrome.storage.local.remove(['token', 'user', 'lastAuthCheck']);
     return null;
   } catch (error) {
-    console.error('[Job Manager] Error checking auth:', error);
+    console.error('[ApplyForMe] Error checking auth:', error);
     return null;
   }
 }
@@ -110,7 +110,7 @@ async function getAuthFromDashboard() {
 // Function to verify token with backend
 async function verifyToken(token) {
   try {
-    const API_URL = 'http://localhost:4000/api/auth/verify';
+    const API_URL = 'https://api.applyforme.com.au/api/auth/verify';
     const response = await fetch(API_URL, {
       method: 'GET',
       headers: {
@@ -125,7 +125,7 @@ async function verifyToken(token) {
     }
     return false;
   } catch (error) {
-    console.error('[Job Manager] Token verification error:', error);
+    console.error('[ApplyForMe] Token verification error:', error);
     return false;
   }
 }
@@ -144,14 +144,14 @@ async function startAuthCheck() {
       const isValid = await verifyToken(auth.token);
       if (!isValid) {
         // Token invalid, clear storage
-        console.log('[Job Manager] Token invalid, clearing extension auth');
+        console.log('[ApplyForMe] Token invalid, clearing extension auth');
         await chrome.storage.local.remove(['token', 'user', 'lastAuthCheck']);
       }
     } else {
       // No auth found - make sure storage is cleared
       const cached = await chrome.storage.local.get(['token', 'user']);
       if (cached.token || cached.user) {
-        console.log('[Job Manager] No auth in dashboard but extension has cached data - clearing');
+        console.log('[ApplyForMe] No auth in dashboard but extension has cached data - clearing');
         await chrome.storage.local.remove(['token', 'user', 'lastAuthCheck']);
       }
     }

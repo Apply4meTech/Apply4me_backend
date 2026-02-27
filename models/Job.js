@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 // Job Schema
 const JobSchema = new mongoose.Schema({
   title: { type: String, required: true },
-  company: { type: String, required: true },
+  company: { type: String, required: false, default: '' }, // Not required to allow empty strings for Indeed
   location: { type: String, default: '' },
   jobUrl: { type: String, required: false }, // Optional for custom jobs
   platform: { type: String, default: 'custom' }, // Default to 'custom' instead of 'linkedin'
