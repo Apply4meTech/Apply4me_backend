@@ -3,36 +3,7 @@ const { extractResumeText, parseResumeStructure } = require('../utils/resumeExtr
 const { analyzeATS } = require('../utils/atsAnalyzer');
 const { optimizeResumeContent } = require('../utils/resumeOptimizer');
 const { generateATSFriendlyPDF, formatResumeText } = require('../utils/pdfGenerator');
-const { uploadFileToS3, getSignedUrl } = require('../utils/s3Service');
-const AWS = require('aws-sdk');
-
-// Initialize S3
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY || process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION_NAME || process.env.AWS_REGION || 'us-east-1',
-});
-
-const BUCKET_NAME = process.env.AWS_RESUME_BUCKET_NAME || process.env.AWS_S3_BUCKET_NAME;
-
-/**
- * Get file buffer from S3
- * @param {String} key - S3 object key
- * @returns {Promise<Buffer>}
- */
-const getFileFromS3 = async (key) => {
-  try {
-    const params = {
-      Bucket: BUCKET_NAME,
-      Key: key
-    };
-    const data = await s3.getObject(params).promise();
-    return data.Body;
-  } catch (error) {
-    console.error('Error getting file from S3:', error);
-    throw new Error(`Failed to retrieve file from S3: ${error.message}`);
-  }
-};
+const { uploadFileToS3, getSignedUrl, getFileBufferFromS3 } = require('../utils/s3Service');
 
 /**
  * Analyze resume for ATS compatibility
@@ -68,7 +39,7 @@ const analyzeResume = async (req, res) => {
     }
 
     // Get resume file from S3
-    const fileBuffer = await getFileFromS3(user.resume_details.key);
+    const fileBuffer = await getFileBufferFromS3(user.resume_details.key);
     
     // Extract text from resume
     const resumeText = await extractResumeText(fileBuffer, user.resume_details.mimeType);
@@ -177,7 +148,7 @@ const optimizeResume = async (req, res) => {
     }
 
     // Get resume file from S3
-    const fileBuffer = await getFileFromS3(user.resume_details.key);
+    const fileBuffer = await getFileBufferFromS3(user.resume_details.key);
     
     // Extract text from resume
     const resumeText = await extractResumeText(fileBuffer, user.resume_details.mimeType);

@@ -1,4 +1,4 @@
-const { uploadFileToS3, deleteFileFromS3 } = require('../utils/s3Service');
+const { uploadFileToS3, deleteFileFromS3, getFileBufferFromS3 } = require('../utils/s3Service');
 const User = require('../models/User');
 
 /**
@@ -80,16 +80,7 @@ const uploadFile = async (req, res) => {
           // Import the analysis utilities directly to avoid circular dependencies
           const { extractResumeText, parseResumeStructure } = require('../utils/resumeExtractor');
           const { analyzeATS } = require('../utils/atsAnalyzer');
-          const AWS = require('aws-sdk');
-          
-          const s3 = new AWS.S3({
-            accessKeyId: process.env.AWS_ACCESS_KEY || process.env.AWS_ACCESS_KEY_ID,
-            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-            region: process.env.AWS_REGION_NAME || process.env.AWS_REGION || 'us-east-1',
-          });
-          
-          const BUCKET_NAME = process.env.AWS_RESUME_BUCKET_NAME || process.env.AWS_S3_BUCKET_NAME;
-          
+
           // Get updated user
           const updatedUser = await User.findById(userId);
           if (!updatedUser || !updatedUser.resume_details || !updatedUser.resume_details.key) {
@@ -105,10 +96,7 @@ const uploadFile = async (req, res) => {
           }
 
           // Get resume file from S3
-          const fileBuffer = await s3.getObject({
-            Bucket: BUCKET_NAME,
-            Key: updatedUser.resume_details.key
-          }).promise().then(data => data.Body);
+          const fileBuffer = await getFileBufferFromS3(updatedUser.resume_details.key);
           
           // Extract text from resume
           const resumeText = await extractResumeText(fileBuffer, updatedUser.resume_details.mimeType);

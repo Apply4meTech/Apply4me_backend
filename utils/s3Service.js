@@ -1,4 +1,6 @@
-const AWS = require('aws-sdk');
+const { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { Upload } = require('@aws-sdk/lib-storage');
+const { getSignedUrl: createPresignedUrl } = require('@aws-sdk/s3-request-presigner');
 const crypto = require('crypto');
 
 // Trim credentials to avoid signature mismatch from accidental spaces
@@ -7,18 +9,18 @@ const secretAccessKey = (process.env.AWS_SECRET_ACCESS_KEY || '').trim();
 // Region MUST match your S3 bucket's region (e.g. ap-southeast-2 for Sydney, us-east-1 for N. Virginia)
 const region = (process.env.AWS_REGION_NAME || process.env.AWS_REGION || 'us-east-1').trim() || 'us-east-1';
 
-// Configure AWS S3
-// Support both naming conventions for flexibility
-// Explicit signatureVersion: 'v4' prevents "signature does not match" errors
-const s3 = new AWS.S3({
-  accessKeyId: accessKeyId || undefined,
-  secretAccessKey: secretAccessKey || undefined,
+// Configure AWS S3 client (v3 - better signature handling, fixes EC2 issues)
+const s3Client = new S3Client({
   region,
-  signatureVersion: 'v4',
-  // Some S3-compatible services or custom endpoints may need this
+  ...(accessKeyId && secretAccessKey && {
+    credentials: {
+      accessKeyId,
+      secretAccessKey,
+    },
+  }),
   ...(process.env.AWS_S3_ENDPOINT && {
     endpoint: process.env.AWS_S3_ENDPOINT,
-    s3ForcePathStyle: process.env.AWS_S3_FORCE_PATH_STYLE === 'true',
+    forcePathStyle: process.env.AWS_S3_FORCE_PATH_STYLE === 'true',
   }),
 });
 
@@ -39,7 +41,7 @@ if (!BUCKET_NAME) {
 
 // Log S3 config at startup (helps debug EC2/deployment issues)
 if (accessKeyId && BUCKET_NAME) {
-  console.log(`📦 S3 configured: region=${region}, bucket=${BUCKET_NAME}`);
+  console.log(`📦 S3 configured: region=${region}, bucket=${BUCKET_NAME} (SDK v3)`);
 }
 
 /**
@@ -52,13 +54,10 @@ if (accessKeyId && BUCKET_NAME) {
  */
 const uploadFileToS3 = async (fileBuffer, fileName, mimeType, folder = 'documents') => {
   try {
-    // Generate unique file name to avoid conflicts
     const fileExtension = fileName.split('.').pop();
     const uniqueFileName = `${crypto.randomBytes(16).toString('hex')}-${Date.now()}.${fileExtension}`;
     const key = `${folder}/${uniqueFileName}`;
 
-    // Upload parameters
-    // Note: Omit ACL when bucket has "ACLs disabled" (Bucket owner enforced)
     const uploadParams = {
       Bucket: BUCKET_NAME,
       Key: key,
@@ -67,21 +66,23 @@ const uploadFileToS3 = async (fileBuffer, fileName, mimeType, folder = 'document
       ...(process.env.AWS_S3_DISABLE_ACL !== 'true' && { ACL: 'private' }),
     };
 
-    // Upload to S3
-    const result = await s3.upload(uploadParams).promise();
+    const upload = new Upload({
+      client: s3Client,
+      params: uploadParams,
+    });
 
-    // Generate resource ID (you can use the S3 key or generate your own)
-    const resourceId = result.Key;
+    const result = await upload.done();
+    const location = result.Location || `https://${BUCKET_NAME}.s3.${region}.amazonaws.com/${key}`;
 
     return {
-      fileName: fileName,
+      fileName,
       fileSize: fileBuffer.length,
-      resourceId: resourceId,
-      url: result.Location,
-      key: result.Key,
-      bucket: result.Bucket,
-      mimeType: mimeType,
-      uploadedAt: new Date().toISOString()
+      resourceId: key,
+      url: location,
+      key,
+      bucket: BUCKET_NAME,
+      mimeType,
+      uploadedAt: new Date().toISOString(),
     };
   } catch (error) {
     console.error('Error uploading file to S3:', error);
@@ -96,12 +97,12 @@ const uploadFileToS3 = async (fileBuffer, fileName, mimeType, folder = 'document
  */
 const deleteFileFromS3 = async (key) => {
   try {
-    const deleteParams = {
-      Bucket: BUCKET_NAME,
-      Key: key,
-    };
-
-    await s3.deleteObject(deleteParams).promise();
+    await s3Client.send(
+      new DeleteObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      })
+    );
     return { success: true };
   } catch (error) {
     console.error('Error deleting file from S3:', error);
@@ -115,15 +116,13 @@ const deleteFileFromS3 = async (key) => {
  * @param {Number} expiresIn - URL expiration time in seconds (default: 3600 = 1 hour)
  * @returns {String} - Signed URL
  */
-const getSignedUrl = async (key, expiresIn = 3600) => {
+const getSignedUrlForGet = async (key, expiresIn = 3600) => {
   try {
-    const params = {
+    const command = new GetObjectCommand({
       Bucket: BUCKET_NAME,
       Key: key,
-      Expires: expiresIn,
-    };
-
-    return await s3.getSignedUrlPromise('getObject', params);
+    });
+    return await createPresignedUrl(s3Client, command, { expiresIn });
   } catch (error) {
     console.error('Error generating signed URL:', error);
     throw new Error(`Failed to generate signed URL: ${error.message}`);
@@ -137,21 +136,29 @@ const getSignedUrl = async (key, expiresIn = 3600) => {
  */
 const getFileBufferFromS3 = async (key) => {
   try {
-    const params = {
-      Bucket: BUCKET_NAME,
-      Key: key,
-    };
-    const result = await s3.getObject(params).promise();
-    return result.Body;
+    const result = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      })
+    );
+    const chunks = [];
+    for await (const chunk of result.Body) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
   } catch (error) {
     console.error('Error getting file from S3:', error);
     throw new Error(`Failed to get file from S3: ${error.message}`);
   }
 };
 
+// Alias for backward compatibility
+const getSignedUrlExport = getSignedUrlForGet;
+
 module.exports = {
   uploadFileToS3,
   deleteFileFromS3,
-  getSignedUrl,
+  getSignedUrl: getSignedUrlExport,
   getFileBufferFromS3,
 };

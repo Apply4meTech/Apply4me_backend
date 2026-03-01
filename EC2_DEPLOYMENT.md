@@ -2,7 +2,17 @@
 
 ## Fix S3 "SignatureDoesNotMatch" Error
 
-If you see `region: null` or "signature does not match" in logs, the AWS region is wrong or missing.
+The app now uses **AWS SDK v3** (`@aws-sdk/client-s3`) which has better signature handling and often fixes EC2 issues that worked locally with v2.
+
+### After pulling/deploying
+
+```bash
+cd /home/ubuntu/Apply4me_backend
+npm install
+pm2 restart server
+```
+
+If you still see "signature does not match" in logs:
 
 ### 1. Add/Update .env on EC2
 
@@ -40,14 +50,23 @@ pm2 restart all
 
 After restart, you should see:
 ```
-📦 S3 configured: region=ap-southeast-2, bucket=your-bucket-name
+📦 S3 configured: region=ap-southeast-2, bucket=your-bucket-name (SDK v3)
 ```
+
+### 5. Run S3 diagnostic (if still failing)
+
+```bash
+cd /home/ubuntu/Apply4me_backend
+node scripts/test-s3-connection.js
+```
+
+This checks credentials and reports if the bucket region doesn't match your `AWS_REGION`.
 
 If you don't see this line, the .env may not be loading. Check:
 - PM2 is started from the backend directory
 - `require('dotenv').config()` runs before any S3 code
 
-### 5. Alternative: Set Env in PM2 Ecosystem
+### 6. Alternative: Set Env in PM2 Ecosystem
 
 Create `ecosystem.config.js` in the backend folder:
 
