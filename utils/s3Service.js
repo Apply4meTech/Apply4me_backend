@@ -4,7 +4,8 @@ const crypto = require('crypto');
 // Trim credentials to avoid signature mismatch from accidental spaces
 const accessKeyId = (process.env.AWS_ACCESS_KEY || process.env.AWS_ACCESS_KEY_ID || '').trim();
 const secretAccessKey = (process.env.AWS_SECRET_ACCESS_KEY || '').trim();
-const region = (process.env.AWS_REGION_NAME || process.env.AWS_REGION || 'us-east-1').trim();
+// Region MUST match your S3 bucket's region (e.g. ap-southeast-2 for Sydney, us-east-1 for N. Virginia)
+const region = (process.env.AWS_REGION_NAME || process.env.AWS_REGION || 'us-east-1').trim() || 'us-east-1';
 
 // Configure AWS S3
 // Support both naming conventions for flexibility
@@ -34,6 +35,11 @@ if (!secretAccessKey) {
 
 if (!BUCKET_NAME) {
   console.error('❌ AWS_RESUME_BUCKET_NAME or AWS_S3_BUCKET_NAME is required');
+}
+
+// Log S3 config at startup (helps debug EC2/deployment issues)
+if (accessKeyId && BUCKET_NAME) {
+  console.log(`📦 S3 configured: region=${region}, bucket=${BUCKET_NAME}`);
 }
 
 /**
