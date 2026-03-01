@@ -103,14 +103,14 @@ If you want to limit permissions to only your bucket:
 # AWS S3 Configuration
 AWS_ACCESS_KEY_ID=your-access-key-id-here
 AWS_SECRET_ACCESS_KEY=your-secret-access-key-here
-AWS_REGION=us-east-1
+AWS_REGION=ap-southeast-2
 AWS_S3_BUCKET_NAME=your-bucket-name-here
 ```
 
 2. **Replace the values**:
    - `AWS_ACCESS_KEY_ID`: The Access Key ID from Step 3
    - `AWS_SECRET_ACCESS_KEY`: The Secret Access Key from Step 3
-   - `AWS_REGION`: The region where you created your bucket (e.g., `us-east-1`)
+   - `AWS_REGION`: **Must match your bucket's region exactly** (e.g. `ap-southeast-2` for Sydney, `us-east-1` for N. Virginia)
    - `AWS_S3_BUCKET_NAME`: Your bucket name from Step 2
 
 ## Step 6: Install AWS SDK
@@ -138,6 +138,27 @@ npm install aws-sdk
 
 ## Troubleshooting
 
+### Error: "The request signature we calculated does not match the signature you provided"
+This is the most common S3 upload error. Fix in this order:
+
+1. **Region mismatch** (most common cause)
+   - Your `AWS_REGION` must match the bucket's actual region
+   - Find your bucket region: AWS Console → S3 → your bucket → Properties → AWS Region
+   - Or run: `aws s3api get-bucket-location --bucket YOUR-BUCKET-NAME`
+   - For Australian deployments (e.g. applyforme.com.au), use `ap-southeast-2` (Sydney)
+   - Update `.env`: `AWS_REGION=ap-southeast-2`
+
+2. **Wrong or rotated credentials**
+   - Verify Access Key ID and Secret Access Key in IAM
+   - Create new credentials if keys were rotated
+   - Ensure no extra spaces, quotes, or newlines in `.env` values
+
+3. **Server clock skew**
+   - AWS rejects requests if server time is off by >15 minutes
+   - Sync time: `w32tm /resync` (Windows) or `sudo ntpdate pool.ntp.org` (Linux)
+
+4. **Restart the server** after any `.env` changes
+
 ### Error: "Access Denied"
 - Check IAM user has correct permissions
 - Verify bucket name in `.env` matches actual bucket name
@@ -152,6 +173,10 @@ npm install aws-sdk
 - Double-check Access Key ID and Secret Access Key
 - Ensure no extra spaces in `.env` file
 - Restart server after updating `.env`
+
+### Error: "AccessControlListNotSupported" or "Bucket does not allow ACLs"
+- New S3 buckets (2023+) have ACLs disabled by default
+- Add to `.env`: `AWS_S3_DISABLE_ACL=true`
 
 ## File Structure in S3
 

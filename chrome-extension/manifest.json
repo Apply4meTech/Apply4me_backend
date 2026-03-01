@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ApplyForMe Job Submitter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Assign jobs to ApplyForMe directly from any job site with one click.",
   "permissions": [
     "storage",
@@ -14,7 +14,7 @@
     "https://*.indeed.com/*",
     "https://*.seek.com.au/*",
     "https://api.applyforme.com.au/*",
-    "https://applyforme.com.au/*"
+    "https://applyforme.com.au/*","https://www.applyforme.com.au/*"
   ],
   "background": {
     "service_worker": "background.js"

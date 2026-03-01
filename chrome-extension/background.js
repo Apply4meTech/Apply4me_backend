@@ -2,7 +2,8 @@
 // This script runs in the background and checks for authentication status
 
 const DASHBOARD_DOMAINS = [
-  'https://applyforme.com.au',
+  'https://www.applyforme.com.au',  // Production (www subdomain - primary)
+  'https://applyforme.com.au',     // Production (root domain)
   'http://localhost:3000',
   'https://localhost:3000',
 ];

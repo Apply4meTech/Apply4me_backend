@@ -1,22 +1,34 @@
 const AWS = require('aws-sdk');
 const crypto = require('crypto');
 
+// Trim credentials to avoid signature mismatch from accidental spaces
+const accessKeyId = (process.env.AWS_ACCESS_KEY || process.env.AWS_ACCESS_KEY_ID || '').trim();
+const secretAccessKey = (process.env.AWS_SECRET_ACCESS_KEY || '').trim();
+const region = (process.env.AWS_REGION_NAME || process.env.AWS_REGION || 'us-east-1').trim();
+
 // Configure AWS S3
 // Support both naming conventions for flexibility
+// Explicit signatureVersion: 'v4' prevents "signature does not match" errors
 const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY || process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION_NAME || process.env.AWS_REGION || 'us-east-1',
+  accessKeyId: accessKeyId || undefined,
+  secretAccessKey: secretAccessKey || undefined,
+  region,
+  signatureVersion: 'v4',
+  // Some S3-compatible services or custom endpoints may need this
+  ...(process.env.AWS_S3_ENDPOINT && {
+    endpoint: process.env.AWS_S3_ENDPOINT,
+    s3ForcePathStyle: process.env.AWS_S3_FORCE_PATH_STYLE === 'true',
+  }),
 });
 
 const BUCKET_NAME = process.env.AWS_RESUME_BUCKET_NAME || process.env.AWS_S3_BUCKET_NAME;
 
 // Validate required environment variables
-if (!s3.config.credentials.accessKeyId) {
+if (!accessKeyId) {
   console.error('❌ AWS_ACCESS_KEY or AWS_ACCESS_KEY_ID is required');
 }
 
-if (!s3.config.credentials.secretAccessKey) {
+if (!secretAccessKey) {
   console.error('❌ AWS_SECRET_ACCESS_KEY is required');
 }
 
@@ -40,12 +52,13 @@ const uploadFileToS3 = async (fileBuffer, fileName, mimeType, folder = 'document
     const key = `${folder}/${uniqueFileName}`;
 
     // Upload parameters
+    // Note: Omit ACL when bucket has "ACLs disabled" (Bucket owner enforced)
     const uploadParams = {
       Bucket: BUCKET_NAME,
       Key: key,
       Body: fileBuffer,
       ContentType: mimeType,
-      ACL: 'private', // Set to 'public-read' if you want public access
+      ...(process.env.AWS_S3_DISABLE_ACL !== 'true' && { ACL: 'private' }),
     };
 
     // Upload to S3

@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const saveUrlBtn = document.getElementById('saveUrlBtn');
   const urlSubmitMsg = document.getElementById('urlSubmitMsg');
 
-  const DASHBOARD_URL = 'https://applyforme.com.au/login';
+  const DASHBOARD_URL = 'https://www.applyforme.com.au/login';
   const API_JOBS_URL = 'https://api.applyforme.com.au/api/jobs';
 
   // Show loading state
