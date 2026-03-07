@@ -8,18 +8,17 @@ const {
   deletePlan,
   seedPlans
 } = require('../controllers/planController');
-const { verifyToken } = require('../middleware/auth');
-const { isSuperAdmin } = require('../middleware/admin');
+const { verifySuperAdmin } = require('../middleware/verifySuperAdmin');
 
 // Public routes
 router.get('/', getAllPlans);
 router.get('/:id', getPlanById);
 
-// Protected routes (super admin only)
-router.post('/', verifyToken, isSuperAdmin, createPlan);
-router.post('/seed', verifyToken, isSuperAdmin, seedPlans);
-router.put('/:id', verifyToken, isSuperAdmin, updatePlan);
-router.delete('/:id', verifyToken, isSuperAdmin, deletePlan);
+// Protected routes (super admin only - accepts both User and Employee tokens)
+router.post('/', verifySuperAdmin, createPlan);
+router.post('/seed', verifySuperAdmin, seedPlans);
+router.put('/:id', verifySuperAdmin, updatePlan);
+router.delete('/:id', verifySuperAdmin, deletePlan);
 
 module.exports = router;
 

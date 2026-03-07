@@ -14,7 +14,8 @@
     "https://*.indeed.com/*",
     "https://*.seek.com.au/*",
     "https://api.applyforme.com.au/*",
-    "https://applyforme.com.au/*","https://www.applyforme.com.au/*"
+    "https://applyforme.com.au/*",
+    "https://www.applyforme.com.au/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -36,15 +37,15 @@
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "icon16.jpg",
-      "48": "icon48.jpg",
-      "128": "icon128.jpg"
+      "16": "icon128.png",
+      "48": "icon128.png",
+      "128": "icon128.png"
     }
   },
   "icons": {
-    "16": "icon16.jpg",
-    "48": "icon48.jpg",
-    "128": "icon128.jpg"
+    "16": "icon128.png",
+    "48": "icon128.png",
+    "128": "icon128.png"
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
