@@ -1,4 +1,5 @@
 const Job = require('../models/Job');
+const User = require('../models/User');
 const { uploadFileToS3, deleteFileFromS3, getSignedUrl, getFileBufferFromS3 } = require('../utils/s3Service');
 const { extractResumeText } = require('../utils/resumeExtractor');
 const { customizeResumeForJob } = require('../utils/resumeCustomizer');
@@ -795,7 +796,7 @@ const customizeResume = async (req, res) => {
     const employeeId = req.employeeId;
     const employee = req.employee;
 
-    const job = await Job.findById(jobId).populate('userId', 'subscription.planName resume_details atsReport.optimizedResumeDetails purchasedAddons');
+    const job = await Job.findById(jobId);
     if (!job) {
       return res.status(404).json({
         success: false,
@@ -812,11 +813,21 @@ const customizeResume = async (req, res) => {
       }
     }
 
-    const user = job.userId;
-    if (!user) {
+    if (!job.userId) {
       return res.status(400).json({
         success: false,
         error: 'Job has no associated user'
+      });
+    }
+
+    // Fetch user with resume fields directly (populate select can omit nested subdocuments)
+    const user = await User.findById(job.userId)
+      .select('subscription.planName resume_details atsReport purchasedAddons')
+      .lean();
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        error: 'User not found'
       });
     }
 
@@ -830,8 +841,10 @@ const customizeResume = async (req, res) => {
       });
     }
 
-    // Resolve user's resume: prefer optimized, else resume_details (from populated userId)
-    const resumeDetails = user.atsReport?.optimizedResumeDetails || user.resume_details;
+    // Resolve user's resume: prefer optimized if it has key, else resume_details
+    const optimized = user.atsReport?.optimizedResumeDetails;
+    const original = user.resume_details;
+    const resumeDetails = (optimized?.key ? optimized : null) || (original?.key ? original : null);
     if (!resumeDetails || !resumeDetails.key) {
       return res.status(400).json({
         success: false,
