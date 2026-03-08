@@ -28,7 +28,7 @@ Remove: `AWS_ACCESS_KEY`, `AWS_REGION_NAME`, `AWS_RESUME_BUCKET_NAME`, and the f
 ```env
 MONGODB_URI=mongodb+srv://aryansingla_db_user:IHwAOm0XWDqQgJ6t@apply4me.eusmu1o.mongodb.net/apply4medb
 JWT_SECRET=Applyieureiheuifh47564rtuierfhjkjkghkasjgh
-JWT_EXPIRES_IN=7d
+JWT_EXPIRES_IN=30d
 FRONTEND_URL=https://applyforme.com.au
 
 # AWS S3 - use ONE pair only

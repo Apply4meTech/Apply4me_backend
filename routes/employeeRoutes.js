@@ -1,11 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { employeeLogin, createEmployee, getAllEmployees, updateEmployee } = require('../controllers/employeeController');
+const { createEmployee, getAllEmployees, updateEmployee } = require('../controllers/employeeController');
 const { verifyEmployeeToken, requireSuperAdmin } = require('../middleware/employeeAuth');
 
-// Public routes
-router.post('/login', employeeLogin);
-
+// Login is now unified at /api/auth/login - handles both User and Employee
 // Protected routes - require authentication
 router.use(verifyEmployeeToken);
 

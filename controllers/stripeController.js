@@ -12,7 +12,8 @@ const createStripePaymentIntent = async (req, res) => {
       amount,
       customerInfo,
       planName,
-      billingPeriod
+      billingPeriod,
+      isAddon
     } = req.body;
 
     // Validate required fields
@@ -30,12 +31,21 @@ const createStripePaymentIntent = async (req, res) => {
       });
     }
 
-    // Check if user already has an active plan
     const user = await User.findById(req.userId);
-    if (user && user.subscription && user.subscription.planName) {
+    const mainPlans = ['Starter', 'Standard', 'Pro', 'Premium'];
+    const isAddonPurchase = isAddon === true || (planName && !mainPlans.includes(planName));
+
+    if (isAddonPurchase) {
+      const hasResumeAddon = user?.purchasedAddons?.some(a => a.name === 'resume_rewrite');
+      if (hasResumeAddon) {
+        return res.status(400).json({
+          success: false,
+          message: 'You already have the ATS Resume Rewrite add-on'
+        });
+      }
+    } else if (user && user.subscription && user.subscription.planName) {
       const now = new Date();
       const isExpired = user.subscription.endDate && new Date(user.subscription.endDate) < now;
-      
       if (!isExpired && user.subscription.status === 'active') {
         return res.status(400).json({
           success: false,
@@ -132,6 +142,111 @@ const createStripePaymentIntent = async (req, res) => {
 };
 
 /**
+ * Dev/Test: Fake payment - bypasses Stripe for development testing
+ * Only enabled when NODE_ENV=development OR ENABLE_DEV_FAKE_PAYMENT=true
+ * POST /api/payments/stripe/dev-fake-payment
+ */
+const devFakePayment = async (req, res) => {
+  const isDevMode = process.env.NODE_ENV === 'development' || process.env.ENABLE_DEV_FAKE_PAYMENT === 'true';
+  if (!isDevMode) {
+    return res.status(403).json({
+      success: false,
+      message: 'Dev fake payment is only available in development mode'
+    });
+  }
+
+  try {
+    const { planName, isAddon } = req.body;
+    const userId = req.userId;
+
+    if (!planName) {
+      return res.status(400).json({
+        success: false,
+        message: 'planName is required'
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const mainPlans = ['Starter', 'Standard', 'Pro', 'Premium'];
+    const isAddonPurchase = isAddon === true || planName === 'ATS_ADDON';
+
+    if (!isAddonPurchase) {
+      if (user.subscription?.planName && user.subscription?.status === 'active') {
+        const isExpired = user.subscription?.endDate && new Date(user.subscription.endDate) < new Date();
+        if (!isExpired) {
+          return res.status(400).json({
+            success: false,
+            message: `You already have an active plan (${user.subscription.planName})`
+          });
+        }
+      }
+    } else {
+      const hasAddon = user.purchasedAddons?.some(a => a.name === 'resume_rewrite');
+      if (hasAddon) {
+        return res.status(400).json({
+          success: false,
+          message: 'You already have the ATS Resume Rewrite add-on'
+        });
+      }
+    }
+
+    const fakePaymentId = `dev_fake_${Date.now()}_${userId}`;
+    const payment = new Payment({
+      userId,
+      transactionId: fakePaymentId,
+      merchantTransactionId: fakePaymentId,
+      amount: isAddonPurchase ? 39 : 1,
+      currency: 'AUD',
+      status: 'SUCCESS',
+      paymentMethod: 'CARD',
+      gateway: 'STRIPE',
+      stripePaymentIntentId: fakePaymentId,
+      planName: isAddonPurchase ? 'ATS_ADDON' : planName,
+      billingPeriod: 'onetime',
+      completedAt: new Date(),
+      metadata: { customerName: user.name, customerEmail: user.email, devFake: true }
+    });
+    await payment.save();
+
+    if (isAddonPurchase) {
+      user.purchasedAddons = user.purchasedAddons || [];
+      user.purchasedAddons.push({ name: 'resume_rewrite', purchasedAt: new Date() });
+    } else {
+      user.subscription = {
+        planName,
+        billingPeriod: 'onetime',
+        startDate: new Date(),
+        endDate: null,
+        status: 'active',
+        paymentId: payment._id
+      };
+    }
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Dev fake payment completed',
+      data: {
+        payment_intent_id: fakePaymentId,
+        planName,
+        billingPeriod: 'onetime'
+      }
+    });
+  } catch (error) {
+    console.error('Dev fake payment error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Dev fake payment failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
  * Verify Stripe Payment
  * POST /api/payments/stripe/verify
  */
@@ -147,6 +262,32 @@ const verifyStripePayment = async (req, res) => {
         success: false,
         message: 'Payment intent ID is required',
         redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`
+      });
+    }
+
+    // Dev fake payment - skip Stripe, return success (user already updated)
+    if (payment_intent_id.startsWith('dev_fake_')) {
+      const payment = await Payment.findOne({
+        stripePaymentIntentId: payment_intent_id,
+        gateway: 'STRIPE'
+      });
+      if (!payment || payment.status !== 'SUCCESS') {
+        return res.status(400).json({
+          success: false,
+          message: 'Dev fake payment not found or invalid',
+          redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`
+        });
+      }
+      return res.json({
+        success: true,
+        message: 'Payment verified successfully',
+        data: {
+          payment_intent_id: payment_intent_id,
+          status: 'SUCCESS',
+          planName: payment.planName,
+          billingPeriod: payment.billingPeriod
+        },
+        redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/success`
       });
     }
 
@@ -201,35 +342,44 @@ const verifyStripePayment = async (req, res) => {
     payment.completedAt = new Date();
     await payment.save();
 
-    // Update user subscription/plan if needed
+    // Update user subscription or add-on
     if (payment.planName) {
       try {
         const user = await User.findById(payment.userId);
         if (user) {
-          // Update user's plan information
-          let endDate = null;
-          if (payment.billingPeriod === 'quarterly') {
-            endDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days
-          } else if (payment.billingPeriod === 'monthly') {
-            endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-          } else if (payment.billingPeriod === 'onetime') {
-            // For one-time payments, set endDate to null (no expiration)
-            endDate = null;
+          const mainPlans = ['Starter', 'Standard', 'Pro', 'Premium'];
+          const isAddon = !mainPlans.includes(payment.planName);
+
+          if (isAddon) {
+            // Add-on purchase (e.g. ATS_ADDON, resume_rewrite)
+            const addonName = payment.planName === 'ATS_ADDON' ? 'resume_rewrite' : payment.planName.toLowerCase().replace(/\s+/g, '_');
+            const hasAddon = user.purchasedAddons?.some(a => a.name === addonName);
+            if (!hasAddon) {
+              user.purchasedAddons = user.purchasedAddons || [];
+              user.purchasedAddons.push({ name: addonName, purchasedAt: new Date() });
+              await user.save();
+            }
+          } else {
+            // Main plan subscription
+            let endDate = null;
+            if (payment.billingPeriod === 'quarterly') {
+              endDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+            } else if (payment.billingPeriod === 'monthly') {
+              endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+            }
+            user.subscription = {
+              planName: payment.planName,
+              billingPeriod: payment.billingPeriod,
+              startDate: new Date(),
+              endDate: endDate,
+              status: 'active',
+              paymentId: payment._id
+            };
+            await user.save();
           }
-          
-          user.subscription = {
-            planName: payment.planName,
-            billingPeriod: payment.billingPeriod,
-            startDate: new Date(),
-            endDate: endDate,
-            status: 'active',
-            paymentId: payment._id
-          };
-          await user.save();
         }
       } catch (userError) {
         console.error('Error updating user subscription:', userError);
-        // Don't fail payment verification if user update fails
       }
     }
 
@@ -344,6 +494,7 @@ module.exports = {
   createStripePaymentIntent,
   verifyStripePayment,
   getStripePaymentStatus,
-  checkStripeConfig
+  checkStripeConfig,
+  devFakePayment
 };
 

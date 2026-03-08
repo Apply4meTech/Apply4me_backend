@@ -265,6 +265,11 @@ const UserSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  // Purchased add-ons (one-time purchases like ATS Resume Rewrite)
+  purchasedAddons: [{
+    name: { type: String, required: true }, // e.g. 'resume_rewrite', 'linkedin_optimisation'
+    purchasedAt: { type: Date, default: Date.now }
+  }],
   // Subscription information
   subscription: {
     planName: {

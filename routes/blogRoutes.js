@@ -58,21 +58,28 @@ const uploadMiddleware = (req, res, next) => {
   });
 };
 
-// Custom middleware that tries employee auth, then falls back to optional auth
-const optionalEmployeeOrUserAuth = async (req, res, next) => {
+// Custom middleware that accepts BOTH User and Employee tokens.
+// Sets req.userId for both (for like/bookmark filtering) so blog features work for all user types.
+const optionalUserOrEmployeeAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   
   // If no auth header, continue without authentication
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return optionalAuth(req, res, next);
+    req.userId = null;
+    req.user = null;
+    req.employee = null;
+    return optionalAuth(req, res, next); // optionalAuth will set req.userId=null and call next()
   }
 
   const token = authHeader.split(' ')[1];
   if (!token) {
+    req.userId = null;
+    req.user = null;
+    req.employee = null;
     return optionalAuth(req, res, next);
   }
 
-  // Try to verify as employee token first
+  // Try Employee token first (super admin, employees)
   try {
     const jwt = require('jsonwebtoken');
     const Employee = require('../models/Employee');
@@ -83,24 +90,25 @@ const optionalEmployeeOrUserAuth = async (req, res, next) => {
       if (employee && employee.isActive) {
         req.employee = employee;
         req.employeeId = decoded.employeeId;
+        req.userId = decoded.employeeId.toString(); // For like/bookmark - use employeeId as actor
         return next();
       }
     }
   } catch (err) {
-    // Not an employee token or invalid, continue to optional auth
+    // Not an employee token or invalid, continue to user auth
   }
 
-  // Fall back to optional user auth
+  // Fall back to User token (normal users)
   return optionalAuth(req, res, next);
 };
 
-router.get('/', optionalEmployeeOrUserAuth, getAllBlogs); // GET /api/blogs - Get all published blogs
+router.get('/', optionalUserOrEmployeeAuth, getAllBlogs); // GET /api/blogs - Get all published blogs
 
-// User interaction routes (require user authentication via optionalAuth) - must come before /:id
-router.post('/:id/like', optionalAuth, toggleLike); // POST /api/blogs/:id/like - Like/Unlike blog
-router.post('/:id/bookmark', optionalAuth, toggleBookmark); // POST /api/blogs/:id/bookmark - Bookmark/Unbookmark blog
+// User interaction routes - accept both User and Employee tokens (for normal users, employees, super admin)
+router.post('/:id/like', optionalUserOrEmployeeAuth, toggleLike); // POST /api/blogs/:id/like - Like/Unlike blog
+router.post('/:id/bookmark', optionalUserOrEmployeeAuth, toggleBookmark); // POST /api/blogs/:id/bookmark - Bookmark/Unbookmark blog
 
-router.get('/:id', optionalEmployeeOrUserAuth, getBlogById); // GET /api/blogs/:id - Get blog by ID or slug
+router.get('/:id', optionalUserOrEmployeeAuth, getBlogById); // GET /api/blogs/:id - Get blog by ID or slug
 
 // Admin routes (require super admin authentication)
 router.post('/', verifyEmployeeToken, requireSuperAdmin, uploadMiddleware, createBlog); // POST /api/blogs - Create blog

@@ -115,11 +115,16 @@ const getMyPlan = async (req, res) => {
       });
     }
 
-    // If user has no subscription, return null
+    // If user has no subscription, return minimal data (may have add-ons only)
     if (!user.subscription || !user.subscription.planName) {
       return res.json({
         success: true,
-        data: null,
+        data: {
+          subscription: null,
+          purchasedAddons: user.purchasedAddons || [],
+          plan: null,
+          payment: null
+        },
         message: 'No active plan found'
       });
     }
@@ -154,7 +159,6 @@ const getMyPlan = async (req, res) => {
           isPopular: plan.isPopular
         } : {
           name: user.subscription.planName,
-          // Fallback if plan is deleted
         },
         subscription: {
           planName: user.subscription.planName,
@@ -163,6 +167,7 @@ const getMyPlan = async (req, res) => {
           endDate: user.subscription.endDate,
           status: status
         },
+        purchasedAddons: user.purchasedAddons || [],
         payment: paymentDetails
       }
     });

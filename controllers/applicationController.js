@@ -1,5 +1,6 @@
 const Job = require('../models/Job');
 const User = require('../models/User');
+const { getSignedUrl } = require('../utils/s3Service');
 
 /**
  * Get all applications for user with filters and pagination
@@ -74,68 +75,51 @@ const getApplications = async (req, res) => {
       .sort(sort)
       .skip(skip)
       .limit(limitNum)
-      .select('title company location jobUrl platform status createdAt metadata resume coverLetter screenshotProof')
+      .select('title company location jobUrl platform status createdAt metadata resume coverLetter screenshotProof userId userInfo')
       .lean();
 
-    // Get user's resume information for applications without attached resumes
-    const userResumeInfo = await User.findById(userId).select('resume_details atsReport.optimizedResumeDetails').lean();
+    // Format applications - only show files uploaded by employee (job-attached), use signed URLs
+    const formattedApplications = await Promise.all(applications.map(async (app) => {
+      const buildFileInfo = async (fileObj) => {
+        if (!fileObj?.key && !fileObj?.url) return null;
+        let url = fileObj.url;
+        if (fileObj.key) {
+          try {
+            url = await getSignedUrl(fileObj.key, 3600);
+          } catch (err) {
+            console.error('Error getting signed URL:', err);
+          }
+        }
+        return url ? {
+          url,
+          fileName: fileObj.fileName,
+          uploadedAt: fileObj.uploadedAt
+        } : null;
+      };
 
-    // Format applications
-    const formattedApplications = applications.map(app => {
-      // If job has a resume, use it; otherwise, use user's optimized resume (default) or original
-      let resumeToShow = null;
-      if (app.resume?.url) {
-        resumeToShow = {
-          url: app.resume.url,
-          fileName: app.resume.fileName,
-          uploadedAt: app.resume.uploadedAt,
-          type: 'job-attached'
-        };
-      } else if (userResumeInfo?.atsReport?.optimizedResumeDetails?.url) {
-        // Default to optimized resume if available
-        resumeToShow = {
-          url: userResumeInfo.atsReport.optimizedResumeDetails.url,
-          fileName: userResumeInfo.atsReport.optimizedResumeDetails.fileName,
-          uploadedAt: userResumeInfo.atsReport.optimizedResumeDetails.uploadedAt,
-          type: 'optimized'
-        };
-      } else if (userResumeInfo?.resume_details?.url) {
-        resumeToShow = {
-          url: userResumeInfo.resume_details.url,
-          fileName: userResumeInfo.resume_details.fileName,
-          uploadedAt: userResumeInfo.resume_details.uploadedAt,
-          type: 'original'
-        };
-      }
+      const resumeToShow = app.resume?.key || app.resume?.url ? await buildFileInfo(app.resume) : null;
+      const coverLetterToShow = app.coverLetter?.key || app.coverLetter?.url ? await buildFileInfo(app.coverLetter) : null;
+      const screenshotToShow = app.screenshotProof?.key || app.screenshotProof?.url ? await buildFileInfo(app.screenshotProof) : null;
 
       return {
         id: app._id,
         jobName: app.title,
         company: app.company,
         location: app.location,
-        link: app.jobUrl || null, // Handle optional jobUrl
+        link: app.jobUrl || null,
         status: app.status,
         source: app.platform || 'Unknown',
         date: app.createdAt,
         description: app.metadata?.description,
         salary: app.metadata?.salary,
         requirements: app.metadata?.requirements || [],
-        // Include file information
         files: {
           resume: resumeToShow,
-          coverLetter: app.coverLetter?.url ? {
-            url: app.coverLetter.url,
-            fileName: app.coverLetter.fileName,
-            uploadedAt: app.coverLetter.uploadedAt
-          } : null,
-          screenshotProof: app.screenshotProof?.url ? {
-            url: app.screenshotProof.url,
-            fileName: app.screenshotProof.fileName,
-            uploadedAt: app.screenshotProof.uploadedAt
-          } : null
+          coverLetter: coverLetterToShow,
+          screenshotProof: screenshotToShow
         }
       };
-    });
+    }));
 
     res.json({
       success: true,

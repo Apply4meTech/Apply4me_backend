@@ -2,7 +2,7 @@ const Employee = require('../models/Employee');
 const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
 
 // Helper function to generate JWT token
 const generateToken = (employeeId) => {
@@ -138,16 +138,50 @@ const createEmployee = async (req, res) => {
   }
 };
 
-// Get all employees (only by super admin)
+// Get all employees (only by super admin) - with search, filters, pagination
 const getAllEmployees = async (req, res) => {
   try {
-    const employees = await Employee.find({ role: 'employee' })
+    const { search, status, page = 1, limit = 10 } = req.query;
+
+    const query = { role: 'employee' };
+
+    // Search by name or email
+    if (search && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), 'i');
+      query.$or = [
+        { name: searchRegex },
+        { email: searchRegex }
+      ];
+    }
+
+    // Filter by status (active/inactive)
+    if (status === 'active') {
+      query.isActive = true;
+    } else if (status === 'inactive') {
+      query.isActive = false;
+    }
+
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 10));
+    const skip = (pageNum - 1) * limitNum;
+
+    const total = await Employee.countDocuments(query);
+    const employees = await Employee.find(query)
       .select('-password')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
 
     res.json({
       success: true,
-      employees
+      employees,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum)
+      }
     });
   } catch (error) {
     console.error('Error in get all employees:', error);

@@ -795,7 +795,7 @@ const customizeResume = async (req, res) => {
     const employeeId = req.employeeId;
     const employee = req.employee;
 
-    const job = await Job.findById(jobId).populate('userId', 'subscription.planName resume_details atsReport.optimizedResumeDetails');
+    const job = await Job.findById(jobId).populate('userId', 'subscription.planName resume_details atsReport.optimizedResumeDetails purchasedAddons');
     if (!job) {
       return res.status(404).json({
         success: false,
@@ -821,10 +821,12 @@ const customizeResume = async (req, res) => {
     }
 
     const planName = user.subscription?.planName || null;
-    if (!planName || planName === 'Starter') {
+    const hasResumeAddon = user.purchasedAddons?.some(a => a.name === 'resume_rewrite');
+    const canCustomize = (planName && planName !== 'Starter') || hasResumeAddon;
+    if (!canCustomize) {
       return res.status(403).json({
         success: false,
-        error: 'Customized resume is only available for Standard, Pro, and Premium plans. This user is on Starter plan.'
+        error: 'Customized resume is only available for Standard, Pro, Premium plans, or with the Custom Resume Rewrite add-on.'
       });
     }
 
@@ -881,9 +883,26 @@ const customizeResume = async (req, res) => {
 
     const downloadUrl = await getSignedUrl(uploadResult.key, 3600);
 
+    // Save customized resume to Job.resume so user can preview and download
+    const fileDetails = {
+      fileName: uploadResult.fileName,
+      fileSize: uploadResult.fileSize,
+      resourceId: uploadResult.resourceId,
+      url: uploadResult.url,
+      key: uploadResult.key,
+      bucket: uploadResult.bucket,
+      mimeType: uploadResult.mimeType,
+      uploadedAt: uploadResult.uploadedAt ? new Date(uploadResult.uploadedAt) : new Date()
+    };
+
+    await Job.findByIdAndUpdate(jobId, {
+      resume: fileDetails,
+      updatedAt: Date.now()
+    });
+
     res.json({
       success: true,
-      message: 'Customized resume generated. Download and upload it to this job, then upload screenshot proof.',
+      message: 'Customized resume generated and saved. You can preview and download it below. Add screenshot proof when done.',
       downloadUrl,
       fileName: uploadResult.fileName,
       expiresIn: 3600

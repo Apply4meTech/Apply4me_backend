@@ -1,14 +1,16 @@
 const User = require('../models/User');
 const Job = require('../models/Job');
 const Employee = require('../models/Employee');
+const { getSignedUrl } = require('../utils/s3Service');
 
 /**
  * Get dashboard data for user
- * GET /api/dashboard
+ * GET /api/dashboard?page=1&limit=10&search=...&status=...&platform=...
  */
 const getDashboardData = async (req, res) => {
   try {
     const userId = req.userId;
+    const { search, status, platform, page = 1, limit = 10 } = req.query;
 
     // Get user to find account manager and email
     const user = await User.findById(userId).select('accountManagerId email');
@@ -37,86 +39,107 @@ const getDashboardData = async (req, res) => {
       }
     }
 
-    // Build query to find jobs by userId OR by userInfo.email
-    const jobQuery = {
+    // Build query: user ownership + optional filters
+    const queryConditions = [
+      {
+        $or: [
+          { userId: userId.toString() },
+          ...(userEmail ? [{ 'userInfo.email': userEmail }] : [])
+        ]
+      }
+    ];
+    if (status && status !== 'all') {
+      queryConditions.push({ status });
+    }
+    if (platform && platform !== 'all') {
+      queryConditions.push({ platform });
+    }
+    if (search && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), 'i');
+      queryConditions.push({
+        $or: [
+          { title: searchRegex },
+          { company: searchRegex },
+          { location: searchRegex }
+        ]
+      });
+    }
+    const jobQuery = queryConditions.length > 1 ? { $and: queryConditions } : queryConditions[0];
+
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 10));
+    const skip = (pageNum - 1) * limitNum;
+
+    const baseUserQuery = {
       $or: [
         { userId: userId.toString() },
         ...(userEmail ? [{ 'userInfo.email': userEmail }] : [])
       ]
     };
+    const total = await Job.countDocuments(jobQuery);
+    const platforms = await Job.distinct('platform', baseUserQuery);
 
-    // Get recent applications (last 10)
     const applications = await Job.find(jobQuery)
       .sort({ createdAt: -1 })
-      .limit(10)
+      .skip(skip)
+      .limit(limitNum)
       .select('title company location jobUrl platform status createdAt userId resume coverLetter screenshotProof notes notesUpdatedAt')
       .lean();
 
-    // Get user's resume information for applications without attached resumes
-    const userResumeInfo = await User.findById(userId).select('resume_details atsReport.optimizedResumeDetails').lean();
-
-    // Format applications
-    const formattedApplications = applications.map(app => {
-      // If job has a resume, use it; otherwise, use user's optimized resume (default) or original
-      let resumeToShow = null;
-      if (app.resume?.url) {
-        resumeToShow = {
-          url: app.resume.url,
-          fileName: app.resume.fileName,
-          uploadedAt: app.resume.uploadedAt,
-          type: 'job-attached'
-        };
-      } else if (userResumeInfo?.atsReport?.optimizedResumeDetails?.url) {
-        // Default to optimized resume if available
-        resumeToShow = {
-          url: userResumeInfo.atsReport.optimizedResumeDetails.url,
-          fileName: userResumeInfo.atsReport.optimizedResumeDetails.fileName,
-          uploadedAt: userResumeInfo.atsReport.optimizedResumeDetails.uploadedAt,
-          type: 'optimized'
-        };
-      } else if (userResumeInfo?.resume_details?.url) {
-        resumeToShow = {
-          url: userResumeInfo.resume_details.url,
-          fileName: userResumeInfo.resume_details.fileName,
-          uploadedAt: userResumeInfo.resume_details.uploadedAt,
-          type: 'original'
-        };
+    const buildFileInfo = async (fileObj) => {
+      if (!fileObj?.key && !fileObj?.url) return null;
+      let url = fileObj.url;
+      if (fileObj.key) {
+        try {
+          url = await getSignedUrl(fileObj.key, 3600);
+        } catch (err) {
+          console.error('Error getting signed URL:', err);
+        }
       }
+      return url ? {
+        url,
+        fileName: fileObj.fileName,
+        uploadedAt: fileObj.uploadedAt
+      } : null;
+    };
+
+    const formattedApplications = await Promise.all(applications.map(async (app) => {
+      const resumeToShow = app.resume?.key || app.resume?.url ? await buildFileInfo(app.resume) : null;
+      const coverLetterToShow = app.coverLetter?.key || app.coverLetter?.url ? await buildFileInfo(app.coverLetter) : null;
+      const screenshotToShow = app.screenshotProof?.key || app.screenshotProof?.url ? await buildFileInfo(app.screenshotProof) : null;
 
       return {
         id: app._id,
         jobName: app.title,
         company: app.company,
         location: app.location,
-        link: app.jobUrl || null, // Handle optional jobUrl
+        link: app.jobUrl || null,
         status: app.status,
         source: app.platform || 'Unknown',
         date: app.createdAt,
-        // Include file information
         files: {
           resume: resumeToShow,
-          coverLetter: app.coverLetter?.url ? {
-            url: app.coverLetter.url,
-            fileName: app.coverLetter.fileName,
-            uploadedAt: app.coverLetter.uploadedAt
-          } : null,
-          screenshotProof: app.screenshotProof?.url ? {
-            url: app.screenshotProof.url,
-            fileName: app.screenshotProof.fileName,
-            uploadedAt: app.screenshotProof.uploadedAt
-          } : null
+          coverLetter: coverLetterToShow,
+          screenshotProof: screenshotToShow
         },
         notes: app.notes || '',
         notesUpdatedAt: app.notesUpdatedAt || null
       };
-    });
+    }));
 
     res.json({
       success: true,
       data: {
         totalJobsApplied,
         accountManagerName,
-        applications: formattedApplications
+        applications: formattedApplications,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum)
+        },
+        platforms: platforms.filter(p => p)
       }
     });
   } catch (error) {

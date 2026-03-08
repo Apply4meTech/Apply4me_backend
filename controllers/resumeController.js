@@ -128,6 +128,8 @@ const getATSReport = async (req, res) => {
  * Optimize resume using AI and generate ATS-friendly PDF
  * POST /api/resume/optimize
  */
+const ATS_PLANS = ['Standard', 'Pro', 'Premium'];
+
 const optimizeResume = async (req, res) => {
   try {
     const userId = req.userId;
@@ -144,6 +146,15 @@ const optimizeResume = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Please analyze your resume first before optimizing.'
+      });
+    }
+
+    const hasATSPlan = ATS_PLANS.includes(user.subscription?.planName);
+    const hasResumeAddon = user.purchasedAddons?.some(a => a.name === 'resume_rewrite');
+    if (!hasATSPlan && !hasResumeAddon) {
+      return res.status(403).json({
+        success: false,
+        error: 'ATS resume optimization requires Standard, Pro, or Premium plan, or the Custom Resume Rewrite add-on.'
       });
     }
 

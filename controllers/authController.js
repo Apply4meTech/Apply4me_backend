@@ -1,16 +1,22 @@
 const User = require('../models/User');
+const Employee = require('../models/Employee');
 const Newsletter = require('../models/Newsletter');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendPasswordResetEmail, sendPasswordResetSuccessEmail } = require('../utils/emailService');
 
-const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
-// Helper function to generate JWT token
+// Helper function to generate JWT token for User
 const generateToken = (userId) => {
   return jwt.sign({ userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+};
+
+// Helper function to generate JWT token for Employee (uses employeeId for employeeAuth middleware)
+const generateEmployeeToken = (employeeId) => {
+  return jwt.sign({ employeeId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 };
 
 // Signup controller
@@ -95,7 +101,8 @@ const signup = async (req, res) => {
   }
 };
 
-// Login controller
+// Unified Login controller - handles both User and Employee (including super_admin)
+// Single endpoint for all user types; tries User first, then Employee
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -108,49 +115,74 @@ const login = async (req, res) => {
       });
     }
 
-    // Find user by email (password will be included by default in our model)
-    const user = await User.findOne({ email: email.toLowerCase() });
-    
-    if (!user) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid email or password' 
-      });
-    }
+    const emailLower = email.toLowerCase();
 
-    // Compare password
-    const isPasswordValid = await user.comparePassword(password);
-    
-    if (!isPasswordValid) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid email or password' 
-      });
-    }
+    // 1. Try User model first
+    const user = await User.findOne({ email: emailLower });
+    if (user) {
+      const isPasswordValid = await user.comparePassword(password);
+      if (isPasswordValid) {
+        const token = generateToken(user._id);
+        const newsletterSubscription = await Newsletter.findOne({ 
+          email: emailLower,
+          isActive: true 
+        });
+        const isNewsletterSubscribed = !!newsletterSubscription;
 
-    // Generate JWT token
-    const token = generateToken(user._id);
+        // Check if user has active subscription (payment completed)
+        const now = new Date();
+        const hasActiveSubscription = !!(
+          user.subscription?.planName &&
+          user.subscription?.status === 'active' &&
+          (!user.subscription?.endDate || new Date(user.subscription.endDate) >= now)
+        );
 
-    // Check if user is subscribed to newsletter
-    const newsletterSubscription = await Newsletter.findOne({ 
-      email: user.email.toLowerCase(),
-      isActive: true 
-    });
-    const isNewsletterSubscribed = !!newsletterSubscription;
-
-    
-    res.json({
-      success: true,
-      message: 'Login successful',
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        isOnboardingComplete: user.isOnboardingComplete || false,
-        isNewsletterSubscribed: isNewsletterSubscribed,
-        createdAt: user.createdAt
+        return res.json({
+          success: true,
+          message: 'Login successful',
+          token,
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role || 'user',
+            isOnboardingComplete: user.isOnboardingComplete || false,
+            isNewsletterSubscribed: isNewsletterSubscribed,
+            hasActiveSubscription,
+            subscription: user.subscription || null,
+            purchasedAddons: user.purchasedAddons || [],
+            createdAt: user.createdAt
+          }
+        });
       }
+    }
+
+    // 2. Try Employee model (employee or super_admin)
+    const employee = await Employee.findOne({ email: emailLower, isActive: true });
+    if (employee) {
+      const isPasswordValid = await employee.comparePassword(password);
+      if (isPasswordValid) {
+        const token = generateEmployeeToken(employee._id);
+        return res.json({
+          success: true,
+          message: 'Login successful',
+          token,
+          user: {
+            id: employee._id,
+            name: employee.name,
+            email: employee.email,
+            role: employee.role,
+            isEmployee: true,
+            createdAt: employee.createdAt
+          }
+        });
+      }
+    }
+
+    // Neither User nor Employee matched, or password invalid
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid email or password' 
     });
   } catch (error) {
     console.error('Error in login:', error);
