@@ -82,6 +82,12 @@ const UserSchema = new mongoose.Schema({
     ref: 'Employee',
     default: null
   },
+  // Affiliate referral - set when user signs up via affiliate link
+  referredBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Affiliate',
+    default: null
+  },
   // Onboarding fields
   isOnboardingComplete: {
     type: Boolean,

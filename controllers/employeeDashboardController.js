@@ -1,5 +1,6 @@
 const Job = require('../models/Job');
 const Employee = require('../models/Employee');
+const User = require('../models/User');
 const { getSignedUrl } = require('../utils/s3Service');
 
 /**
@@ -11,7 +12,7 @@ const getEmployeeDashboardData = async (req, res) => {
     const employeeId = req.employeeId;
     const employee = req.employee;
     const isSuperAdmin = employee.role === 'super_admin';
-    const { search, status, page = 1, limit = 10 } = req.query;
+    const { search, status, page = 1, limit = 10, sortBy = 'title', sortOrder = 'asc' } = req.query;
 
     let query = {};
     
@@ -49,15 +50,25 @@ const getEmployeeDashboardData = async (req, res) => {
       status: { $in: ['pending', 'assigned'] }
     });
 
+    const totalInProgress = await Job.countDocuments({
+      ...baseQuery,
+      status: 'in_progress'
+    });
+
     const pageNum = Math.max(1, parseInt(page) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 10));
     const skip = (pageNum - 1) * limitNum;
+
+    // Build sort: default sort by job title (asc)
+    const sortField = sortBy === 'title' ? 'title' : 'createdAt';
+    const sortDir = sortOrder === 'desc' ? -1 : 1;
+    const sortObj = { [sortField]: sortDir };
 
     // Get jobs with details (include subscription.planName, resume_details, atsReport for user resumes)
     const jobs = await Job.find(query)
       .populate('userId', 'name email fullName subscription.planName resume_details atsReport.optimizedResumeDetails purchasedAddons cv_details')
       .populate('assignedTo', 'name email')
-      .sort({ createdAt: -1 })
+      .sort(sortObj)
       .skip(skip)
       .limit(limitNum)
       .lean();
@@ -74,7 +85,10 @@ const getEmployeeDashboardData = async (req, res) => {
 
     // Format jobs - include userResumes (ATS + original) for employee to access
     const formattedJobs = await Promise.all(jobs.map(async (job) => {
-      const user = job.userId;
+      let user = job.userId;
+      if (!user && job.userInfo?.email) {
+        user = await User.findOne({ email: job.userInfo.email.toLowerCase() }).select('name email fullName subscription.planName resume_details atsReport.optimizedResumeDetails purchasedAddons cv_details');
+      }
       const userPlanName = user?.subscription?.planName || null;
       const hasResumeAddon = user?.purchasedAddons?.some(a => a.name === 'resume_rewrite');
       const canCustomizeResume = (userPlanName && userPlanName !== 'Starter') || !!hasResumeAddon;
@@ -128,11 +142,12 @@ const getEmployeeDashboardData = async (req, res) => {
 
       return {
         id: job._id,
+        userId: user?._id ? user._id.toString() : null,
         jobTitle: job.title,
         company: job.company,
         location: job.location,
-        userName: user ? (user.fullName || user.name || 'N/A') : 'N/A',
-        applicant: user ? (user.fullName || user.name || 'N/A') : 'N/A',
+        userName: user ? (user.fullName || user.name || 'N/A') : (job.userInfo?.name || 'N/A'),
+        applicant: user ? (user.fullName || user.name || 'N/A') : (job.userInfo?.name || 'N/A'),
         applicantEmail: user ? user.email : null,
         assignedTo: job.assignedTo ? job.assignedTo.name : null,
         status: job.status,
@@ -162,6 +177,7 @@ const getEmployeeDashboardData = async (req, res) => {
         totalJobs,
         totalCompleted,
         totalPending,
+        totalInProgress,
         jobs: formattedJobs,
         pagination: {
           page: pageNum,

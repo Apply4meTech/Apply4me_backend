@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Employee = require('../models/Employee');
 const Newsletter = require('../models/Newsletter');
+const Affiliate = require('../models/Affiliate');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendPasswordResetEmail, sendPasswordResetSuccessEmail } = require('../utils/emailService');
@@ -22,7 +23,7 @@ const generateEmployeeToken = (employeeId) => {
 // Signup controller
 const signup = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, referralCode } = req.body;
 
     // Validation
     if (!name || !email || !password) {
@@ -42,11 +43,22 @@ const signup = async (req, res) => {
       });
     }
 
+    // Resolve affiliate referral if code provided
+    let referredBy = null;
+    if (referralCode && referralCode.trim()) {
+      const affiliate = await Affiliate.findOne({
+        referralCode: referralCode.toUpperCase().trim(),
+        status: 'active'
+      });
+      if (affiliate) referredBy = affiliate._id;
+    }
+
     // Create new user
     const user = await User.create({
       name,
       email: email.toLowerCase(),
-      password
+      password,
+      ...(referredBy && { referredBy })
     });
 
     // Generate JWT token

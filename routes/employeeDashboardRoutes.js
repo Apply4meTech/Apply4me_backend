@@ -21,6 +21,9 @@ const {
   uploadEmployeeProfilePicture,
   deleteEmployeeProfilePicture
 } = require('../controllers/employeeProfileController');
+const { getCustomerProfile } = require('../controllers/employeeCustomerController');
+const { listAffiliates, markCommissionsPaid } = require('../controllers/employeeAffiliateController');
+const { requireSuperAdmin } = require('../middleware/employeeAuth');
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -110,6 +113,13 @@ router.use(verifyEmployeeToken);
 
 // Dashboard route
 router.get('/dashboard', getEmployeeDashboardData);
+
+// Customer profile (read-only for employees)
+router.get('/customers/:userId', getCustomerProfile);
+
+// Affiliates (super admin only)
+router.get('/affiliates', requireSuperAdmin, listAffiliates);
+router.patch('/affiliates/:id/mark-paid', requireSuperAdmin, markCommissionsPaid);
 
 // Profile routes
 router.get('/profile', getEmployeeProfile);

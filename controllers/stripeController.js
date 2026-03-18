@@ -1,6 +1,7 @@
 const stripeService = require('../services/stripeService');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
+const { createCommissionForReferredUser } = require('../utils/affiliateCommission');
 
 /**
  * Create Stripe Payment Intent
@@ -226,6 +227,7 @@ const devFakePayment = async (req, res) => {
       };
     }
     await user.save();
+    await createCommissionForReferredUser(payment);
 
     res.json({
       success: true,
@@ -378,6 +380,7 @@ const verifyStripePayment = async (req, res) => {
             await user.save();
           }
         }
+        await createCommissionForReferredUser(payment);
       } catch (userError) {
         console.error('Error updating user subscription:', userError);
       }

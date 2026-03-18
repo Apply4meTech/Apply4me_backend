@@ -18,17 +18,21 @@ const getDashboardData = async (req, res) => {
     // Get user email for matching jobs by email
     const userEmail = user?.email?.toLowerCase();
 
-    // Build query to find jobs by userId OR by userInfo.email
-    const statsQuery = {
+    const baseUserQuery = {
       $or: [
         { userId: userId.toString() },
         ...(userEmail ? [{ 'userInfo.email': userEmail }] : [])
-      ],
-      status: { $in: ['applied', 'response', 'interview', 'rejected'] }
+      ]
     };
 
+    // Get total jobs opted (all jobs belonging to customer)
+    const totalJobsOpted = await Job.countDocuments(baseUserQuery);
+
     // Get total jobs applied (status: 'applied', 'response', 'interview', 'rejected')
-    const totalJobsApplied = await Job.countDocuments(statsQuery);
+    const totalJobsApplied = await Job.countDocuments({
+      ...baseUserQuery,
+      status: { $in: ['applied', 'response', 'interview', 'rejected'] }
+    });
 
     // Get account manager name
     let accountManagerName = 'Not Assigned';
@@ -70,12 +74,6 @@ const getDashboardData = async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 10));
     const skip = (pageNum - 1) * limitNum;
 
-    const baseUserQuery = {
-      $or: [
-        { userId: userId.toString() },
-        ...(userEmail ? [{ 'userInfo.email': userEmail }] : [])
-      ]
-    };
     const total = await Job.countDocuments(jobQuery);
     const platforms = await Job.distinct('platform', baseUserQuery);
 
@@ -131,6 +129,7 @@ const getDashboardData = async (req, res) => {
       success: true,
       data: {
         totalJobsApplied,
+        totalJobsOpted,
         accountManagerName,
         applications: formattedApplications,
         pagination: {

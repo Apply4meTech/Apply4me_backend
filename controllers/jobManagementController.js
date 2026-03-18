@@ -17,7 +17,7 @@ const updateJobStatus = async (req, res) => {
     const employee = req.employee;
 
     // Validate status
-    const validStatuses = ['pending', 'assigned', 'applied', 'response', 'rejected', 'completed'];
+    const validStatuses = ['pending', 'assigned', 'in_progress', 'applied', 'response', 'rejected', 'completed'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,

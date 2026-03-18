@@ -9,7 +9,7 @@ const JobSchema = new mongoose.Schema({
   platform: { type: String, default: 'custom' }, // Default to 'custom' instead of 'linkedin'
   status: { 
     type: String, 
-    enum: ['pending', 'assigned', 'applied', 'response', 'rejected', 'completed'],
+    enum: ['pending', 'assigned', 'in_progress', 'applied', 'response', 'rejected', 'completed'],
     default: 'pending'
   },
   userId: { 
