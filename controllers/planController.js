@@ -272,78 +272,78 @@ const seedPlans = async (req, res) => {
         name: 'Starter',
         price: 89,
         actualPrice: 119,
-        description: '100 Job Applications',
+        description: '0 Jobs (Add-Ons available)',
         currency: 'AUD',
         billingPeriod: 'onetime',
         features: [
-          { text: '100 Job Applications', included: true },
+          { text: '0 Jobs (Add-Ons available)', included: true },
           { text: 'Human Assistant', included: true },
-          { text: 'Standard cover letter (role-adjusted)', included: true },
+          { text: 'Standard cover letters', included: true },
           { text: 'Real-time progress updates', included: true }
         ],
         isPopular: false,
         badge: null,
         isActive: true,
         displayOrder: 1,
-        jobApplicationsLimit: 100
+        jobApplicationsLimit: 0
       },
       {
         name: 'Standard',
         price: 149,
         actualPrice: 199,
-        description: '175 Job Applications',
+        description: '90 Jobs',
         currency: 'AUD',
         billingPeriod: 'onetime',
         features: [
-          { text: '175 Job Applications', included: true },
+          { text: '90 Jobs', included: true },
           { text: 'Human Assistant', included: true },
           { text: 'Custom cover letters', included: true },
-          { text: 'Resume created by us, ATS-aligned', included: true },
+          { text: 'Resume Tailored Per Job', included: true },
           { text: 'Real-time progress updates', included: true }
         ],
         isPopular: false,
         badge: null,
         isActive: true,
         displayOrder: 2,
-        jobApplicationsLimit: 175
+        jobApplicationsLimit: 90
       },
       {
         name: 'Pro',
         price: 229,
         actualPrice: 299,
-        description: '250 Job Applications',
+        description: '190 Jobs',
         currency: 'AUD',
         billingPeriod: 'onetime',
         features: [
-          { text: '250 Job Applications', included: true },
+          { text: '190 Jobs', included: true },
           { text: 'Human Assistant', included: true },
           { text: 'Custom cover letters', included: true },
-          { text: 'Resume created by us for every job', included: true },
+          { text: 'Resume Tailored Per Job', included: true },
           { text: 'Real-time progress updates', included: true },
-          { text: '1 Interview prep included + add-on', included: true }
+          { text: '1 Interview prep Session', included: true }
         ],
         isPopular: true,
         badge: 'Most Popular',
         isActive: true,
         displayOrder: 3,
-        jobApplicationsLimit: 250
+        jobApplicationsLimit: 190
       },
       {
         name: 'Premium',
         price: 329,
         actualPrice: 399,
-        description: '350 Job Applications',
+        description: '350 Jobs',
         currency: 'AUD',
         billingPeriod: 'onetime',
         features: [
-          { text: '350 Job Applications', included: true },
+          { text: '350 Jobs', included: true },
           { text: 'Dedicated Human Assistant', included: true },
           { text: 'Custom cover letters', included: true },
-          { text: 'Resume created by us for every job', included: true },
+          { text: 'Resume Tailored Per Job', included: true },
           { text: 'LinkedIn Profile Optimisation', included: true },
           { text: 'Priority Processing', included: true },
           { text: 'Real-time progress updates', included: true },
-          { text: '3 Interview prep included + add-on', included: true }
+          { text: '3 Interview prep Sessions', included: true }
         ],
         isPopular: false,
         badge: 'Best Value!',

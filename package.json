@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "seed:superadmin": "node scripts/seedSuperAdmin.js",
-    "seed:plans": "node scripts/seedPlans.js"
+    "seed:plans": "node scripts/seedPlans.js",
+    "update:resume-feature": "node scripts/updateResumeFeature.js"
   },
   "keywords": [],
   "author": "",
