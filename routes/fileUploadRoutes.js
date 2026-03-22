@@ -7,25 +7,39 @@ const { uploadFile, deleteFile, getFileUrl } = require('../controllers/fileUploa
 // Configure multer for file uploads (store in memory for S3 upload)
 const storage = multer.memoryStorage();
 
+const docMimeTypes = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+];
+const imageMimeTypes = [
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp'
+];
+
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = [
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/plain'
-  ];
-  
-  if (allowedTypes.includes(file.mimetype)) {
+  const type = (req.params.type || '').toLowerCase();
+  let allowed = docMimeTypes;
+  if (type === 'certifications') {
+    allowed = [...docMimeTypes, ...imageMimeTypes];
+  }
+  if (type === 'cv' || type === 'cover_letter') {
+    allowed = docMimeTypes; // PDF or DOCX only, no TXT
+  }
+  if (allowed.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Allowed types: PDF, DOC, DOCX, TXT'), false);
+    cb(new Error(`Invalid file type. Allowed: ${type === 'certifications' ? 'PDF, DOC, DOCX, or images' : 'PDF, DOC, DOCX'}`), false);
   }
 };
 
 const upload = multer({
   storage: storage,
-  limits: { 
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit (per spec for Resume)
   },
   fileFilter: fileFilter
 }).single('file');

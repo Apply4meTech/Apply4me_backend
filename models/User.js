@@ -143,6 +143,19 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  currentLocation: {
+    type: String,
+    trim: true
+  },
+  workRightsInAustralia: {
+    type: String,
+    enum: ['Citizen', 'Permanent Resident', 'Visa Holder', ''],
+    default: ''
+  },
+  visaType: {
+    type: String,
+    trim: true
+  },
   // Step 2: Job Preferences & Compensation
   primaryJobTitles: {
     type: [String],
@@ -255,6 +268,49 @@ const UserSchema = new mongoose.Schema({
       type: Date
     }
   },
+  academicTranscripts_details: {
+    fileName: { type: String, trim: true },
+    fileSize: { type: Number },
+    resourceId: { type: String, trim: true },
+    url: { type: String, trim: true },
+    key: { type: String, trim: true },
+    bucket: { type: String, trim: true },
+    mimeType: { type: String, trim: true },
+    uploadedAt: { type: Date }
+  },
+  certifications_details: {
+    fileName: { type: String, trim: true },
+    fileSize: { type: Number },
+    resourceId: { type: String, trim: true },
+    url: { type: String, trim: true },
+    key: { type: String, trim: true },
+    bucket: { type: String, trim: true },
+    mimeType: { type: String, trim: true },
+    uploadedAt: { type: Date }
+  },
+  // Employment History
+  currentRole: { type: String, trim: true },
+  previousRoles: { type: String, trim: true },
+  keyResponsibilities: { type: String, trim: true },
+  keyAchievements: { type: String, trim: true },
+  // Compliance & Checks
+  policeCheck: { type: String, trim: true },
+  workingWithChildrenCheck: { type: String, trim: true },
+  securityClearance: { type: String, trim: true },
+  driversLicence: { type: String, trim: true },
+  // Availability
+  availableStartDate: { type: Date },
+  noticePeriod: { type: String, trim: true },
+  // Application Preferences
+  howToApply: { type: String, trim: true },
+  companiesToAvoid: { type: String, trim: true },
+  // Additional Information
+  anythingElse: { type: String, trim: true },
+  // Consent & Authorisation
+  consentInfoAccurate: { type: Boolean, default: false },
+  consentSubmitApplications: { type: Boolean, default: false },
+  consentAccountCreation: { type: Boolean, default: false },
+  consentTermsAndPrivacy: { type: Boolean, default: false },
   portfolioWebsite: {
     type: String,
     trim: true

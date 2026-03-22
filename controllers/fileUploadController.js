@@ -1,14 +1,28 @@
 const { uploadFileToS3, deleteFileFromS3, getFileBufferFromS3 } = require('../utils/s3Service');
 const User = require('../models/User');
 
+const VALID_UPLOAD_TYPES = ['resume', 'cv', 'academic_transcripts', 'certifications'];
+const TYPE_TO_FIELD = {
+  resume: 'resume_details',
+  cv: 'cv_details',
+  academic_transcripts: 'academicTranscripts_details',
+  certifications: 'certifications_details'
+};
+const TYPE_TO_FOLDER = {
+  resume: 'resumes',
+  cv: 'cover-letters',
+  academic_transcripts: 'academic-transcripts',
+  certifications: 'certifications'
+};
+
 /**
- * Upload file to S3 (Resume or CV)
- * POST /api/upload/resume or /api/upload/cv
+ * Upload file to S3 (Resume, CV, Academic Transcripts, Certifications)
+ * POST /api/upload/resume | /api/upload/cv | /api/upload/academic_transcripts | /api/upload/certifications
  */
 const uploadFile = async (req, res) => {
   try {
     const userId = req.userId;
-    const fileType = req.params.type; // 'resume' or 'cv'
+    const fileType = (req.params.type || '').toLowerCase();
     
     if (!req.file) {
       return res.status(400).json({
@@ -17,36 +31,26 @@ const uploadFile = async (req, res) => {
       });
     }
 
-    // Validate file type
-    if (fileType !== 'resume' && fileType !== 'cv') {
+    if (!VALID_UPLOAD_TYPES.includes(fileType)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid file type. Use "resume" or "cv"'
+        error: 'Invalid file type. Use "resume", "cv", "academic_transcripts", or "certifications"'
       });
     }
 
-    // Get user to check for existing file
     const user = await User.findById(userId);
-    
-    // Delete old file from S3 if exists
-    if (fileType === 'resume' && user.resume_details && user.resume_details.key) {
+    const updateField = TYPE_TO_FIELD[fileType];
+    const existingDetails = user[updateField];
+
+    if (existingDetails && existingDetails.key) {
       try {
-        await deleteFileFromS3(user.resume_details.key);
+        await deleteFileFromS3(existingDetails.key);
       } catch (error) {
-        console.error('Error deleting old resume:', error);
-        // Continue even if deletion fails
-      }
-    } else if (fileType === 'cv' && user.cv_details && user.cv_details.key) {
-      try {
-        await deleteFileFromS3(user.cv_details.key);
-      } catch (error) {
-        console.error('Error deleting old CV:', error);
-        // Continue even if deletion fails
+        console.error(`Error deleting old ${fileType}:`, error);
       }
     }
 
-    // Upload to S3
-    const folder = fileType === 'resume' ? 'resumes' : 'cover-letters';
+    const folder = TYPE_TO_FOLDER[fileType];
     const uploadResult = await uploadFileToS3(
       req.file.buffer,
       req.file.originalname,
@@ -67,7 +71,6 @@ const uploadFile = async (req, res) => {
     };
 
     // Save to database immediately
-    const updateField = fileType === 'resume' ? 'resume_details' : 'cv_details';
     await User.findByIdAndUpdate(userId, {
       [updateField]: fileDetails
     });
@@ -152,40 +155,36 @@ const uploadFile = async (req, res) => {
 
 /**
  * Delete file from S3 and database
- * DELETE /api/upload/resume or /api/upload/cv
  */
 const deleteFile = async (req, res) => {
   try {
     const userId = req.userId;
-    const fileType = req.params.type; // 'resume' or 'cv'
-    
-    if (fileType !== 'resume' && fileType !== 'cv') {
+    const fileType = (req.params.type || '').toLowerCase();
+
+    if (!VALID_UPLOAD_TYPES.includes(fileType)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid file type. Use "resume" or "cv"'
+        error: 'Invalid file type. Use "resume", "cv", "academic_transcripts", or "certifications"'
       });
     }
 
     const user = await User.findById(userId);
-    const fileDetails = fileType === 'resume' ? user.resume_details : user.cv_details;
+    const updateField = TYPE_TO_FIELD[fileType];
+    const fileDetails = user[updateField];
 
     if (!fileDetails || !fileDetails.key) {
       return res.status(404).json({
         success: false,
-        error: `${fileType === 'resume' ? 'Resume' : 'CV'} not found`
+        error: `${fileType.replace('_', ' ')} not found`
       });
     }
 
-    // Delete from S3
     try {
       await deleteFileFromS3(fileDetails.key);
     } catch (error) {
       console.error('Error deleting file from S3:', error);
-      // Continue to delete from database even if S3 deletion fails
     }
 
-    // Delete from database
-    const updateField = fileType === 'resume' ? 'resume_details' : 'cv_details';
     await User.findByIdAndUpdate(userId, {
       $unset: { [updateField]: 1 }
     });
@@ -206,15 +205,18 @@ const deleteFile = async (req, res) => {
 
 /**
  * Get signed URL for file access
- * GET /api/upload/resume/url or /api/upload/cv/url
  */
 const getFileUrl = async (req, res) => {
   try {
     const userId = req.userId;
-    const fileType = req.params.type; // 'resume' or 'cv'
-    
+    const fileType = (req.params.type || '').toLowerCase();
+
+    if (!VALID_UPLOAD_TYPES.includes(fileType)) {
+      return res.status(400).json({ success: false, error: 'Invalid file type' });
+    }
+
     const user = await User.findById(userId);
-    const fileDetails = fileType === 'resume' ? user.resume_details : user.cv_details;
+    const fileDetails = user[TYPE_TO_FIELD[fileType]];
 
     if (!fileDetails || !fileDetails.key) {
       return res.status(404).json({
