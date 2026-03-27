@@ -1,9 +1,8 @@
 const User = require('../models/User');
 const { extractResumeText, parseResumeStructure } = require('../utils/resumeExtractor');
 const { analyzeATS } = require('../utils/atsAnalyzer');
-const { optimizeResumeContent } = require('../utils/resumeOptimizer');
-const { generateATSFriendlyPDF, formatResumeText } = require('../utils/pdfGenerator');
-const { uploadFileToS3, getSignedUrl, getFileBufferFromS3 } = require('../utils/s3Service');
+const { getSignedUrl, getFileBufferFromS3 } = require('../utils/s3Service');
+const { isAtsEligible, optimizeResumeFromUserDoc } = require('../utils/resumePipeline');
 
 /**
  * Analyze resume for ATS compatibility
@@ -20,6 +19,14 @@ const analyzeResume = async (req, res) => {
       return res.status(404).json({
         success: false,
         error: 'Resume not found. Please upload a resume first.'
+      });
+    }
+
+    if (!isAtsEligible(user)) {
+      return res.status(403).json({
+        success: false,
+        error:
+          'ATS analysis is available on Standard, Pro, Premium, or with the Custom Resume Rewrite add-on.'
       });
     }
 
@@ -90,12 +97,19 @@ const getATSReport = async (req, res) => {
     const user = await User.findById(userId);
 
     // Check if report exists and has valid data
-    const hasValidReport = user?.atsReport && 
-                          user.atsReport.score !== null && 
-                          user.atsReport.score !== undefined;
+    const hasValidReport =
+      user?.atsReport &&
+      user.atsReport.score !== null &&
+      user.atsReport.score !== undefined;
 
     if (!hasValidReport) {
-      // If resume exists but no valid report, suggest analyzing
+      if (!isAtsEligible(user)) {
+        return res.status(404).json({
+          success: false,
+          error: 'ATS resume tools are not included in your current plan.',
+          upgradeRequired: true
+        });
+      }
       if (user?.resume_details?.key) {
         return res.status(404).json({
           success: false,
@@ -103,7 +117,7 @@ const getATSReport = async (req, res) => {
           canAnalyze: true
         });
       }
-      
+
       return res.status(404).json({
         success: false,
         error: 'No ATS report found. Please upload and analyze your resume first.'
@@ -128,8 +142,6 @@ const getATSReport = async (req, res) => {
  * Optimize resume using AI and generate ATS-friendly PDF
  * POST /api/resume/optimize
  */
-const ATS_PLANS = ['Standard', 'Pro', 'Premium'];
-
 const optimizeResume = async (req, res) => {
   try {
     const userId = req.userId;
@@ -149,71 +161,22 @@ const optimizeResume = async (req, res) => {
       });
     }
 
-    const hasATSPlan = ATS_PLANS.includes(user.subscription?.planName);
-    const hasResumeAddon = user.purchasedAddons?.some(a => a.name === 'resume_rewrite');
-    if (!hasATSPlan && !hasResumeAddon) {
+    if (!isAtsEligible(user)) {
       return res.status(403).json({
         success: false,
-        error: 'ATS resume optimization requires Standard, Pro, or Premium plan, or the Custom Resume Rewrite add-on.'
+        error:
+          'ATS resume optimization requires Standard, Pro, Premium, or the Custom Resume Rewrite add-on.'
       });
     }
 
-    // Get resume file from S3
-    const fileBuffer = await getFileBufferFromS3(user.resume_details.key);
-    
-    // Extract text from resume
-    const resumeText = await extractResumeText(fileBuffer, user.resume_details.mimeType);
-
-    // Optimize resume content using AI
-    const optimizedText = await optimizeResumeContent(resumeText, user.atsReport);
-
-    // Format text for PDF generation
-    const formattedText = formatResumeText(optimizedText);
-
-    // Generate ATS-friendly PDF
-    const pdfBuffer = await generateATSFriendlyPDF(formattedText);
-
-    // Upload optimized PDF to S3
-    const fileName = `optimized_${user.resume_details.fileName.replace(/\.[^/.]+$/, '')}.pdf`;
-    const uploadResult = await uploadFileToS3(
-      pdfBuffer,
-      fileName,
-      'application/pdf',
-      'resumes/optimized'
-    );
-
-    // Re-analyze optimized resume to get new score
-    const optimizedStructure = parseResumeStructure(formattedText);
-    const optimizedAnalysis = await analyzeATS(formattedText, optimizedStructure);
-
-    // Update user with optimized resume details
-    const updatedAtsReport = {
-      ...user.atsReport.toObject(),
-      optimizedResumeKey: uploadResult.key,
-      optimizedResumeDetails: {
-        fileName: fileName,
-        fileSize: uploadResult.fileSize,
-        resourceId: uploadResult.resourceId,
-        url: uploadResult.url,
-        key: uploadResult.key,
-        bucket: uploadResult.bucket,
-        mimeType: uploadResult.mimeType,
-        uploadedAt: uploadResult.uploadedAt || new Date()
-      },
-      optimizedAt: new Date(),
-      optimizationScore: optimizedAnalysis.score
-    };
-
-    await User.findByIdAndUpdate(userId, {
-      atsReport: updatedAtsReport
-    });
+    const { uploadResult, optimizedAnalysis } = await optimizeResumeFromUserDoc(user);
 
     res.json({
       success: true,
       message: 'Resume optimized successfully',
       optimizedResume: {
         url: uploadResult.url,
-        fileName: fileName,
+        fileName: uploadResult.fileName,
         fileSize: uploadResult.fileSize
       },
       originalScore: user.atsReport.score,

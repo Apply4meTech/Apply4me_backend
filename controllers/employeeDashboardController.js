@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Job = require('../models/Job');
 const Employee = require('../models/Employee');
 const User = require('../models/User');
@@ -54,6 +55,25 @@ const getEmployeeDashboardData = async (req, res) => {
       ...baseQuery,
       status: 'in_progress'
     });
+
+    // Customers: super admin = all registered customers (User role user); employee = distinct users on assigned jobs
+    let customerCount = 0;
+    if (isSuperAdmin) {
+      customerCount = await User.countDocuments({ role: 'user' });
+    } else {
+      const assigneeOid = new mongoose.Types.ObjectId(String(employeeId));
+      const distinctCustomers = await Job.aggregate([
+        {
+          $match: {
+            assignedTo: assigneeOid,
+            userId: { $exists: true, $ne: null }
+          }
+        },
+        { $group: { _id: '$userId' } },
+        { $count: 'count' }
+      ]);
+      customerCount = distinctCustomers[0]?.count ?? 0;
+    }
 
     const pageNum = Math.max(1, parseInt(page) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 10));
@@ -178,6 +198,7 @@ const getEmployeeDashboardData = async (req, res) => {
         totalCompleted,
         totalPending,
         totalInProgress,
+        customerCount,
         jobs: formattedJobs,
         pagination: {
           page: pageNum,

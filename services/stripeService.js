@@ -55,7 +55,7 @@ class StripeService {
 
       const {
         amount,
-        currency = 'usd',
+        currency = 'aud',
         customerInfo,
         planName,
         billingPeriod,
@@ -71,7 +71,7 @@ class StripeService {
         throw new Error('Customer name and email are required');
       }
 
-      // Convert amount to cents (Stripe expects amount in smallest currency unit)
+      // Smallest currency unit (cents for AUD)
       const amountInCents = Math.round(amount * 100);
 
       // Generate unique receipt

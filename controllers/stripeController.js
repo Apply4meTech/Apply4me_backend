@@ -2,6 +2,44 @@ const stripeService = require('../services/stripeService');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 const { createCommissionForReferredUser } = require('../utils/affiliateCommission');
+const { sendPaymentReceiptEmail } = require('../utils/emailService');
+const { getAddonByPlanName } = require('../utils/addonCatalog');
+
+const paymentSuccessRedirect = () =>
+  `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/success`;
+const paymentFailureRedirect = () =>
+  `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`;
+
+/**
+ * Send receipt once per payment; updates receiptEmailSentAt on success. Never throws.
+ */
+async function sendReceiptIfNeeded(payment) {
+  try {
+    if (payment.receiptEmailSentAt) return;
+    const user = await User.findById(payment.userId).select('email name');
+    const to = payment.metadata?.customerEmail || user?.email;
+    if (!to) {
+      console.warn('[stripe] payment receipt skipped: no email', payment._id?.toString?.());
+      return;
+    }
+    const result = await sendPaymentReceiptEmail({
+      to,
+      recipientName: payment.metadata?.customerName || user?.name,
+      amount: payment.amount,
+      currency: payment.currency || 'AUD',
+      planName: payment.planName,
+      billingPeriod: payment.billingPeriod,
+      paymentIntentId: payment.stripePaymentIntentId,
+      completedAt: payment.completedAt || new Date()
+    });
+    if (result.sent) {
+      payment.receiptEmailSentAt = new Date();
+      await payment.save();
+    }
+  } catch (e) {
+    console.error('[stripe] sendReceiptIfNeeded:', e.message);
+  }
+}
 
 /**
  * Create Stripe Payment Intent
@@ -10,12 +48,13 @@ const { createCommissionForReferredUser } = require('../utils/affiliateCommissio
 const createStripePaymentIntent = async (req, res) => {
   try {
     const {
-      amount,
+      amount: amountRaw,
       customerInfo,
       planName,
-      billingPeriod,
-      isAddon
+      billingPeriod
     } = req.body;
+
+    let amount = Number(amountRaw);
 
     // Validate required fields
     if (!amount || amount <= 0) {
@@ -34,14 +73,29 @@ const createStripePaymentIntent = async (req, res) => {
 
     const user = await User.findById(req.userId);
     const mainPlans = ['Starter', 'Standard', 'Pro', 'Premium'];
-    const isAddonPurchase = isAddon === true || (planName && !mainPlans.includes(planName));
+    const addonDef = getAddonByPlanName(planName);
+    const isValidMainPlan = mainPlans.includes(planName);
+    if (!addonDef && !isValidMainPlan) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid plan or add-on product'
+      });
+    }
+    const isAddonPurchase = !!addonDef;
 
     if (isAddonPurchase) {
-      const hasResumeAddon = user?.purchasedAddons?.some(a => a.name === 'resume_rewrite');
-      if (hasResumeAddon) {
+      const expectedAud = addonDef.amountAud;
+      if (Math.round(amount * 100) !== Math.round(expectedAud * 100)) {
         return res.status(400).json({
           success: false,
-          message: 'You already have the ATS Resume Rewrite add-on'
+          message: 'Amount does not match the selected add-on'
+        });
+      }
+      const hasThisAddon = user?.purchasedAddons?.some((a) => a.name === addonDef.storageName);
+      if (hasThisAddon) {
+        return res.status(400).json({
+          success: false,
+          message: 'You already have this add-on'
         });
       }
     } else if (user && user.subscription && user.subscription.planName) {
@@ -55,6 +109,12 @@ const createStripePaymentIntent = async (req, res) => {
       }
     }
 
+    // Premium: charge A$1 for live card testing (mirrors pricing page). Server-side so amount cannot be spoofed.
+    const PREMIUM_CHECKOUT_AMOUNT_AUD = 1;
+    if (planName === 'Premium') {
+      amount = PREMIUM_CHECKOUT_AMOUNT_AUD;
+    }
+
     // Validate amount limits
     if (amount < 1 || amount > 50000) {
       return res.status(400).json({
@@ -63,10 +123,10 @@ const createStripePaymentIntent = async (req, res) => {
       });
     }
 
-    // Create Stripe payment intent
+    // Create Stripe payment intent (AUD — matches Plan.currency and pricing)
     const stripeOrderData = {
       amount,
-      currency: 'usd',
+      currency: 'aud',
       customerInfo,
       planName,
       billingPeriod,
@@ -157,7 +217,7 @@ const devFakePayment = async (req, res) => {
   }
 
   try {
-    const { planName, isAddon } = req.body;
+    const { planName } = req.body;
     const userId = req.userId;
 
     if (!planName) {
@@ -173,7 +233,15 @@ const devFakePayment = async (req, res) => {
     }
 
     const mainPlans = ['Starter', 'Standard', 'Pro', 'Premium'];
-    const isAddonPurchase = isAddon === true || planName === 'ATS_ADDON';
+    const addonDef = getAddonByPlanName(planName);
+    const isAddonPurchase = !!addonDef;
+
+    if (!isAddonPurchase && !mainPlans.includes(planName)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid plan or add-on product'
+      });
+    }
 
     if (!isAddonPurchase) {
       if (user.subscription?.planName && user.subscription?.status === 'active') {
@@ -186,11 +254,11 @@ const devFakePayment = async (req, res) => {
         }
       }
     } else {
-      const hasAddon = user.purchasedAddons?.some(a => a.name === 'resume_rewrite');
+      const hasAddon = user.purchasedAddons?.some((a) => a.name === addonDef.storageName);
       if (hasAddon) {
         return res.status(400).json({
           success: false,
-          message: 'You already have the ATS Resume Rewrite add-on'
+          message: 'You already have this add-on'
         });
       }
     }
@@ -200,13 +268,13 @@ const devFakePayment = async (req, res) => {
       userId,
       transactionId: fakePaymentId,
       merchantTransactionId: fakePaymentId,
-      amount: isAddonPurchase ? 39 : 1,
+      amount: isAddonPurchase ? addonDef.amountAud : 1,
       currency: 'AUD',
       status: 'SUCCESS',
       paymentMethod: 'CARD',
       gateway: 'STRIPE',
       stripePaymentIntentId: fakePaymentId,
-      planName: isAddonPurchase ? 'ATS_ADDON' : planName,
+      planName,
       billingPeriod: 'onetime',
       completedAt: new Date(),
       metadata: { customerName: user.name, customerEmail: user.email, devFake: true }
@@ -215,7 +283,7 @@ const devFakePayment = async (req, res) => {
 
     if (isAddonPurchase) {
       user.purchasedAddons = user.purchasedAddons || [];
-      user.purchasedAddons.push({ name: 'resume_rewrite', purchasedAt: new Date() });
+      user.purchasedAddons.push({ name: addonDef.storageName, purchasedAt: new Date() });
     } else {
       user.subscription = {
         planName,
@@ -263,7 +331,7 @@ const verifyStripePayment = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Payment intent ID is required',
-        redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`
+        redirect_url: paymentFailureRedirect()
       });
     }
 
@@ -277,9 +345,10 @@ const verifyStripePayment = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: 'Dev fake payment not found or invalid',
-          redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`
+          redirect_url: paymentFailureRedirect()
         });
       }
+      await sendReceiptIfNeeded(payment);
       return res.json({
         success: true,
         message: 'Payment verified successfully',
@@ -289,7 +358,7 @@ const verifyStripePayment = async (req, res) => {
           planName: payment.planName,
           billingPeriod: payment.billingPeriod
         },
-        redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/success`
+        redirect_url: paymentSuccessRedirect()
       });
     }
 
@@ -300,7 +369,7 @@ const verifyStripePayment = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: stripeResult.message || 'Payment verification failed',
-        redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`
+        redirect_url: paymentFailureRedirect()
       });
     }
 
@@ -312,7 +381,7 @@ const verifyStripePayment = async (req, res) => {
         success: false,
         message: `Payment status is ${paymentIntent.status}. Payment must be succeeded.`,
         payment_status: paymentIntent.status,
-        redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`
+        redirect_url: paymentFailureRedirect()
       });
     }
 
@@ -326,7 +395,25 @@ const verifyStripePayment = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Payment record not found',
-        redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`
+        redirect_url: paymentFailureRedirect()
+      });
+    }
+
+    const responseData = {
+      payment_intent_id: payment_intent_id,
+      status: 'SUCCESS',
+      planName: payment.planName,
+      billingPeriod: payment.billingPeriod
+    };
+
+    // Idempotent: already verified — skip duplicate user updates; retry receipt email if needed
+    if (payment.status === 'SUCCESS') {
+      await sendReceiptIfNeeded(payment);
+      return res.json({
+        success: true,
+        message: 'Payment verified successfully',
+        data: responseData,
+        redirect_url: paymentSuccessRedirect()
       });
     }
 
@@ -350,19 +437,19 @@ const verifyStripePayment = async (req, res) => {
         const user = await User.findById(payment.userId);
         if (user) {
           const mainPlans = ['Starter', 'Standard', 'Pro', 'Premium'];
-          const isAddon = !mainPlans.includes(payment.planName);
+          const addonDef = getAddonByPlanName(payment.planName);
+          const isAddon = !!addonDef;
 
           if (isAddon) {
-            // Add-on purchase (e.g. ATS_ADDON, resume_rewrite)
-            const addonName = payment.planName === 'ATS_ADDON' ? 'resume_rewrite' : payment.planName.toLowerCase().replace(/\s+/g, '_');
+            const addonName = addonDef.storageName;
             const hasAddon = user.purchasedAddons?.some(a => a.name === addonName);
             if (!hasAddon) {
               user.purchasedAddons = user.purchasedAddons || [];
               user.purchasedAddons.push({ name: addonName, purchasedAt: new Date() });
               await user.save();
             }
-          } else {
-            // Main plan subscription
+          } else if (mainPlans.includes(payment.planName)) {
+            // Main plan subscription only — unknown planName must not write invalid subscription
             let endDate = null;
             if (payment.billingPeriod === 'quarterly') {
               endDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
@@ -378,6 +465,8 @@ const verifyStripePayment = async (req, res) => {
               paymentId: payment._id
             };
             await user.save();
+          } else {
+            console.warn('[stripe] verify: payment planName is not a main plan or catalog add-on:', payment.planName);
           }
         }
         await createCommissionForReferredUser(payment);
@@ -386,19 +475,13 @@ const verifyStripePayment = async (req, res) => {
       }
     }
 
-    // Prepare response data
-    const responseData = {
-      payment_intent_id: payment_intent_id,
-      status: 'SUCCESS',
-      planName: payment.planName,
-      billingPeriod: payment.billingPeriod
-    };
+    await sendReceiptIfNeeded(payment);
 
     res.json({
       success: true,
       message: 'Payment verified successfully',
       data: responseData,
-      redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/success`
+      redirect_url: paymentSuccessRedirect()
     });
 
   } catch (error) {
@@ -407,7 +490,7 @@ const verifyStripePayment = async (req, res) => {
       success: false,
       message: 'Payment verification failed',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
-      redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`
+      redirect_url: paymentFailureRedirect()
     });
   }
 };

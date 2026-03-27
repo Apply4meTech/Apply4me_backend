@@ -16,7 +16,7 @@ const corsOptions = {
   origin: '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Test-Secret']
 };
 app.use(cors(corsOptions));
 app.use(express.json());
@@ -66,6 +66,7 @@ const addressRoutes = require('./routes/addressRoutes');
 const resumeRoutes = require('./routes/resumeRoutes');
 const jobTitleRoutes = require('./routes/jobTitleRoutes');
 const affiliateRoutes = require('./routes/affiliateRoutes');
+const emailTestRoutes = require('./routes/emailTestRoutes');
 
 // Use Routes
 app.use('/', healthRoutes);
@@ -89,6 +90,7 @@ app.use('/api/address', addressRoutes);
 app.use('/api/resume', resumeRoutes);
 app.use('/api/job-titles', jobTitleRoutes);
 app.use('/api/affiliate', affiliateRoutes);
+app.use('/api/test', emailTestRoutes);
 
 // Serve dashboard 
 app.get('/dashboard', (req, res) => {

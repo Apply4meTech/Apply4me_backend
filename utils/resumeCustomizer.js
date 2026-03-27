@@ -1,19 +1,63 @@
 const OpenAI = require('openai');
+const {
+  normalizeStructuredResume,
+  structuredResumeToPlainText,
+  parseResumeJson
+} = require('./resumeStructured');
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+const RESUME_JSON_INSTRUCTION = `Return a single JSON object (no markdown, no code fences) with this exact shape:
+{
+  "contact": {
+    "fullName": "string",
+    "email": "string or empty",
+    "phone": "string or empty",
+    "location": "string or empty",
+    "linkedin": "string or empty",
+    "github": "string or empty",
+    "website": "string or empty"
+  },
+  "summary": "string or empty",
+  "experience": [
+    {
+      "title": "job title",
+      "company": "company name",
+      "location": "city/state or empty",
+      "dates": "e.g. Jan 2020 – Present",
+      "bullets": ["...", "..."]
+    }
+  ],
+  "education": [
+    {
+      "degree": "",
+      "school": "",
+      "location": "",
+      "dates": "",
+      "details": ""
+    }
+  ],
+  "skills": ["..."] OR [ { "label": "Category", "items": ["a","b"] } ],
+  "certifications": [ { "name": "", "issuer": "", "date": "" } ],
+  "projects": [ { "name": "", "description": "", "bullets": [] } ]
+}
+
+Rules:
+- Preserve all factual information; do not invent employers, dates, or credentials.
+- Tailor bullet wording and ordering to the job description; emphasize relevant keywords naturally.
+- Omit empty sections or use empty strings for missing fields.`;
+
 /**
- * Customize resume content for a specific job description
- * Used for non-Starter plans: each resume is tailored to the job.
+ * Customize resume for a job; returns structured data + plain text.
  * @param {String} resumeText - Original resume text
- * @param {String} jobDescription - Job description (from metadata or pasted by employee)
- * @returns {Promise<String>} - Customized resume text
+ * @param {String} jobDescription - Job description
+ * @returns {Promise<{ structured: import('./resumeStructured').StructuredResume, plainText: string }>}
  */
 const customizeResumeForJob = async (resumeText, jobDescription) => {
   try {
-    const prompt = `You are an expert resume writer. Customize this resume to match the following job description.
+    const prompt = `You are an expert resume writer. Tailor this resume to the job description using the JSON schema below.
 
 ORIGINAL RESUME:
 ${resumeText}
@@ -22,21 +66,19 @@ JOB DESCRIPTION:
 ${jobDescription || 'No job description provided.'}
 
 Requirements:
-1. PRESERVE ALL FACTUAL INFORMATION: Do not invent or change names, dates, companies, job titles, education, or contact details.
-2. TAILOR CONTENT: Emphasize and rephrase relevant experience, skills, and achievements to align with the job description. Use keywords from the job description where they fit naturally.
-3. KEEP SECTIONS: Maintain clear sections (Contact, Experience, Education, Skills, etc.). You may reorder bullet points within a role to put most relevant first.
-4. LENGTH: Keep similar length; do not add fluff. One-page or two-page resume style.
-5. FORMAT: Use standard section headers (e.g. EXPERIENCE, EDUCATION, SKILLS). Use bullet points. No markdown or code blocks.
-6. TONE: Professional and consistent with the original resume.
+1. Keep all factual data (contact, employers, dates, schools) accurate.
+2. Reword and reorder bullets to align with the role; add keywords from the job description where truthful.
+3. Keep similar overall length.
 
-Return only the customized resume text, ready to be converted to PDF. No explanations or preamble.`;
+${RESUME_JSON_INSTRUCTION}`;
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
-          content: 'You are an expert resume writer. Return only the resume text, no markdown or code blocks.'
+          content:
+            'You are an expert resume writer. Respond with valid JSON only, no markdown, no prose outside the JSON object.'
         },
         {
           role: 'user',
@@ -44,16 +86,22 @@ Return only the customized resume text, ready to be converted to PDF. No explana
         }
       ],
       temperature: 0.4,
-      max_tokens: 3500
+      max_tokens: 4096,
+      response_format: { type: 'json_object' }
     });
 
-    const customizedText = response.choices[0].message.content.trim();
-    const cleanedText = customizedText
-      .replace(/```[\w]*\n/g, '')
-      .replace(/```/g, '')
-      .trim();
-
-    return cleanedText;
+    const raw = response.choices[0].message.content?.trim() || '';
+    let parsed = parseResumeJson(raw);
+    if (!parsed) {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        throw new Error('Model did not return valid resume JSON');
+      }
+    }
+    const structured = normalizeStructuredResume(parsed);
+    const plainText = structuredResumeToPlainText(structured);
+    return { structured, plainText };
   } catch (error) {
     console.error('Error customizing resume with OpenAI:', error);
     throw new Error(`Failed to customize resume: ${error.message}`);

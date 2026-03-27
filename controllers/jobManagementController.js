@@ -841,29 +841,34 @@ const customizeResume = async (req, res) => {
       });
     }
 
-    // Resolve user's resume: prefer optimized if it has key, else resume_details
     const optimized = user.atsReport?.optimizedResumeDetails;
-    const original = user.resume_details;
-    const resumeDetails = (optimized?.key ? optimized : null) || (original?.key ? original : null);
-    if (!resumeDetails || !resumeDetails.key) {
+    if (!optimized?.key) {
       return res.status(400).json({
         success: false,
-        error: 'User has no resume on file. Please ensure the user has uploaded a resume.'
+        error:
+          'An ATS-friendly resume is required first. For eligible plans it is created automatically after the customer uploads a resume (wait a minute), or they can generate it from Profile.'
+      });
+    }
+
+    if (!user.resume_details?.key) {
+      return res.status(400).json({
+        success: false,
+        error: 'User has no original resume on file.'
       });
     }
 
     let resumeBuffer;
     try {
-      resumeBuffer = await getFileBufferFromS3(resumeDetails.key);
+      resumeBuffer = await getFileBufferFromS3(optimized.key);
     } catch (err) {
       console.error('Error fetching resume from S3:', err);
       return res.status(500).json({
         success: false,
-        error: 'Failed to load user resume'
+        error: 'Failed to load ATS-friendly resume'
       });
     }
 
-    const resumeText = await extractResumeText(resumeBuffer, resumeDetails.mimeType || 'application/pdf');
+    const resumeText = await extractResumeText(resumeBuffer, optimized.mimeType || 'application/pdf');
     if (!resumeText || resumeText.trim().length < 50) {
       return res.status(400).json({
         success: false,
@@ -882,8 +887,8 @@ const customizeResume = async (req, res) => {
       });
     }
 
-    const customizedText = await customizeResumeForJob(resumeText, jobDescription.trim());
-    const pdfBuffer = await generateATSFriendlyPDF(customizedText);
+    const { structured } = await customizeResumeForJob(resumeText, jobDescription.trim());
+    const pdfBuffer = await generateATSFriendlyPDF(structured);
 
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');

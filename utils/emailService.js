@@ -1,335 +1,251 @@
-const axios = require('axios');
+const { isMailConfigured, sendZeptoMailApi } = require('./zeptomailApi');
 
-// ZeptoMail API configuration
-const ZEPTOMAIL_API_URL = 'https://api.zeptomail.in/v1.1/email'; // Note: .in not .com
-// Trim token to remove any accidental whitespace/newlines
-const rawToken = process.env.ZEPTOMAIL_API_TOKEN ? process.env.ZEPTOMAIL_API_TOKEN.trim() : null;
-// Check if token already includes the prefix, if not add it
-const ZEPTOMAIL_API_TOKEN = "Zoho-enczapikey PHtE6r0EEOi/2m4o8BIF4/65Es6kZtwo9LgyeVNOtIhDCPNSS00Dr9h9kDfiqx8oUfRLQvGfnY48576fuuiBImy+NWZMWWqyqK3sx/VYSPOZsbq6x00bslUedk3aUIXnc9dp0CLSv93bNA=="
-const SENDER_EMAIL = process.env.SENDER_EMAIL || 'contactus@applyforme.com.au';
-const SENDER_NAME = process.env.SENDER_NAME || 'Apply For Me';
-
-// Helper function to send email via ZeptoMail API
-const sendEmailViaZeptoMail = async (to, subject, htmlContent, attachments = []) => {
-  if (!ZEPTOMAIL_API_TOKEN) {
-    throw new Error('ZeptoMail API token is not configured. Please set ZEPTOMAIL_API_TOKEN in your environment variables.');
+/** Shared From: EMAIL_FROM, or SENDER_NAME + SENDER_EMAIL */
+function getFromAddress() {
+  if (process.env.EMAIL_FROM && String(process.env.EMAIL_FROM).trim()) {
+    return process.env.EMAIL_FROM.trim();
   }
-
-  // Validate token format (should not be empty after trim)
-  if (ZEPTOMAIL_API_TOKEN.length === 0) {
-    throw new Error('ZeptoMail API token is empty. Please check your .env file and ensure ZEPTOMAIL_API_TOKEN has a value.');
+  const name = process.env.SENDER_NAME || process.env.EMAIL_SITE_NAME || 'Apply For Me';
+  const addr =
+    process.env.SENDER_EMAIL?.trim() ||
+    process.env.SUPPORT_EMAIL?.trim();
+  if (!addr) {
+    return `"${name}" <noreply@localhost>`;
   }
+  return `"${name}" <${addr}>`;
+}
 
-  // Log token info for debugging (first 10 and last 10 chars only for security)
-  const tokenPreview = ZEPTOMAIL_API_TOKEN.length > 20 
-    ? `${ZEPTOMAIL_API_TOKEN.substring(0, 10)}...${ZEPTOMAIL_API_TOKEN.substring(ZEPTOMAIL_API_TOKEN.length - 10)}`
-    : '***';
-  console.log('Using ZeptoMail API Token (preview):', tokenPreview, 'Length:', ZEPTOMAIL_API_TOKEN.length);
+function getSiteName() {
+  return process.env.EMAIL_SITE_NAME || process.env.SENDER_NAME || 'Apply For Me';
+}
 
-  // Prepare recipient array
-  const toArray = Array.isArray(to) ? to : [to];
-  
-  // Match exact format from working curl request - declare outside try for error logging
-  let emailData;
-  
+function resolveFrom(options) {
+  if (options && options.fromOverride && String(options.fromOverride).trim()) {
+    return String(options.fromOverride).trim();
+  }
+  return getFromAddress();
+}
+
+function formatMoney(amount, currency) {
+  const code = (currency || 'AUD').toUpperCase();
   try {
-    emailData = {
-      from: {
-        address: SENDER_EMAIL
-      },
-      to: toArray.map(email => {
-        // Extract name from email if it's an object, otherwise use email as address
-        if (typeof email === 'object' && email.address) {
-          return {
-            email_address: {
-              address: email.address,
-              name: email.name || email.address.split('@')[0] || 'User'
-            }
-          };
-        }
-        // If email is just a string, extract name from email address
-        const emailStr = String(email);
-        const name = emailStr.split('@')[0] || 'User';
-        return {
-          email_address: {
-            address: emailStr,
-            name: name
-          }
-        };
-      }),
-      subject: subject,
-      htmlbody: htmlContent
-    };
+    return new Intl.NumberFormat('en-AU', { style: 'currency', currency: code }).format(Number(amount));
+  } catch {
+    return `${code} ${Number(amount).toFixed(2)}`;
+  }
+}
 
-    // Add attachments if provided
-    if (attachments && attachments.length > 0) {
-      emailData.attachments = attachments.map(att => {
-        // If attachment has content (buffer), convert to base64
-        if (att.content) {
-          return {
-            filename: att.filename || 'attachment',
-            content: Buffer.isBuffer(att.content) ? att.content.toString('base64') : att.content,
-            encoding: 'base64'
-          };
-        }
-        // If attachment has path (URL), we'll need to download it first
-        return {
-          filename: att.filename || 'attachment',
-          content: att.path,
-          encoding: 'url'
-        };
-      });
-    }
+const { getAddonReceiptLabel } = require('./addonCatalog');
 
-    // Log request details for debugging (without sensitive data)
-    console.log('Sending email via ZeptoMail:', {
-      from: SENDER_EMAIL,
-      to: toArray,
-      subject: subject,
-      hasAttachments: attachments && attachments.length > 0
+function planDisplayName(planName) {
+  if (!planName) return 'Purchase';
+  const addon = getAddonReceiptLabel(planName);
+  if (addon) return addon;
+  return planName;
+}
+
+/**
+ * Send payment receipt to customer. Never throws — logs and returns { sent, error }.
+ */
+async function sendPaymentReceiptEmail(opts, options = {}) {
+  const {
+    to,
+    recipientName,
+    amount,
+    currency,
+    planName,
+    billingPeriod,
+    paymentIntentId,
+    completedAt
+  } = opts;
+
+  if (!to || !String(to).trim()) {
+    return { sent: false, error: 'missing_email' };
+  }
+
+  if (!isMailConfigured()) {
+    console.warn('[emailService] ZeptoMail not configured (ZEPTOMAIL_API_TOKEN); receipt email skipped');
+    return { sent: false, error: 'mail_not_configured' };
+  }
+
+  const from = resolveFrom(options);
+  const siteName = getSiteName();
+  const supportEmail = process.env.SUPPORT_EMAIL || process.env.SENDER_EMAIL;
+  const money = formatMoney(amount, currency);
+  const planLabel = planDisplayName(planName);
+  const periodLabel =
+    billingPeriod === 'monthly'
+      ? 'Monthly'
+      : billingPeriod === 'quarterly'
+        ? 'Quarterly'
+        : 'One-time';
+  const when = completedAt
+    ? new Date(completedAt).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' })
+    : new Date().toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' });
+  const greeting = recipientName ? `Hi ${recipientName},` : 'Hi,';
+
+  const text = [
+    greeting,
+    '',
+    `Thank you for your payment to ${siteName}.`,
+    '',
+    'Payment receipt',
+    `Amount: ${money}`,
+    `Plan / product: ${planLabel}`,
+    `Billing: ${periodLabel}`,
+    `Transaction ID: ${paymentIntentId}`,
+    `Date: ${when}`,
+    '',
+    `If you have questions, contact us at ${supportEmail}.`,
+    '',
+    `— ${siteName}`
+  ].join('\n');
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.5; color: #0f172a; max-width: 560px;">
+  <p>${greeting}</p>
+  <p>Thank you for your payment to <strong>${escapeHtml(siteName)}</strong>.</p>
+  <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 20px; margin: 20px 0; background: #f8fafc;">
+    <h2 style="margin: 0 0 12px; font-size: 1rem; color: #334155;">Payment receipt</h2>
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.9375rem;">
+      <tr><td style="padding: 4px 0; color: #64748b;">Amount</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${escapeHtml(money)}</td></tr>
+      <tr><td style="padding: 4px 0; color: #64748b;">Plan / product</td><td style="padding: 4px 0; text-align: right;">${escapeHtml(planLabel)}</td></tr>
+      <tr><td style="padding: 4px 0; color: #64748b;">Billing</td><td style="padding: 4px 0; text-align: right;">${escapeHtml(periodLabel)}</td></tr>
+      <tr><td style="padding: 4px 0; color: #64748b;">Transaction ID</td><td style="padding: 4px 0; text-align: right; font-size: 0.8125rem; word-break: break-all;">${escapeHtml(paymentIntentId)}</td></tr>
+      <tr><td style="padding: 4px 0; color: #64748b;">Date</td><td style="padding: 4px 0; text-align: right;">${escapeHtml(when)}</td></tr>
+    </table>
+  </div>
+  <p style="font-size: 0.875rem; color: #64748b;">If you have questions, contact us at <a href="mailto:${escapeHtml(supportEmail)}">${escapeHtml(supportEmail)}</a>.</p>
+  <p style="margin-top: 24px; font-size: 0.875rem; color: #94a3b8;">— ${escapeHtml(siteName)}</p>
+</body>
+</html>`;
+
+  const subject = `${siteName} — Payment receipt (${money})`;
+  try {
+    await sendZeptoMailApi({
+      from,
+      to: String(to).trim(),
+      subject,
+      text,
+      html
     });
-
-    // Log the exact request payload (for debugging)
-    console.log('ZeptoMail Request Payload:', JSON.stringify(emailData, null, 2));
-
-    const response = await axios.post(ZEPTOMAIL_API_URL, emailData, {
-      headers: {
-        'Authorization': ZEPTOMAIL_API_TOKEN, // Token already includes "Zoho-enczapikey" prefix
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
-    });
-
-    console.log('Email sent via ZeptoMail - Full Response:', JSON.stringify(response.data, null, 2));
-    
-    // Check if response indicates success
-    if (response.data && response.data.message === 'OK') {
-      return { 
-        success: true, 
-        messageId: response.data.request_id || 'sent',
-        requestId: response.data.request_id
-      };
-    }
-    
-    return { success: true, messageId: 'sent' };
-  } catch (error) {
-    // Enhanced error logging
-    const errorDetails = error.response?.data || {};
-    const errorMessage = errorDetails.error?.message || errorDetails.message || error.message;
-    const errorCode = errorDetails.error?.code || errorDetails.code;
-    
-    // Include request payload in error log if available
-    const requestPayload = emailData ? JSON.stringify(emailData, null, 2) : 'Request payload not available';
-    
-    console.error('ZeptoMail API Error Details:', {
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      errorCode: errorCode,
-      errorMessage: errorMessage,
-      fullError: JSON.stringify(errorDetails, null, 2),
-      requestUrl: ZEPTOMAIL_API_URL,
-      requestPayload: requestPayload
-    });
-
-    // Provide more helpful error messages
-    if (errorCode === 'TM_4001') {
-      const details = errorDetails.error?.details || [];
-      const hasInvalidToken = details.some(d => d.code === 'SERR_157');
-      
-      if (hasInvalidToken) {
-        throw new Error(`ZeptoMail Invalid API Token (SERR_157). Please check: 1) Copy the token from Agents >> SMTP/API >> Send Mail Token, 2) Ensure no extra spaces/newlines in .env file, 3) Token must be from the same Agent as sender address '${SENDER_EMAIL}', 4) Regenerate token if needed. Full error: ${JSON.stringify(errorDetails)}`);
-      }
-      throw new Error(`ZeptoMail Access Denied (TM_4001). Please verify: 1) API token is correct, 2) Sender address '${SENDER_EMAIL}' is added to your agent, 3) Domain is verified. Full error: ${JSON.stringify(errorDetails)}`);
-    }
-    
-    throw new Error(`Failed to send email: ${errorMessage || JSON.stringify(errorDetails)}`);
+    return { sent: true };
+  } catch (err) {
+    console.error('[emailService] sendPaymentReceiptEmail failed:', err.message);
+    return { sent: false, error: err.message };
   }
-};
+}
 
-// Send password reset email
-const sendPasswordResetEmail = async (email, resetToken, resetUrl) => {
-  try {
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Password Reset</title>
-      </head>
-      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background-color: #2463eb; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-          <h1 style="color: white; margin: 0;">Apply For Me</h1>
-        </div>
-        <div style="background-color: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
-          <h2 style="color: #111318; margin-top: 0;">Password Reset Request</h2>
-          <p>You requested to reset your password. Click the button below to reset it:</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${resetUrl}" 
-               style="display: inline-block; background-color: #2463eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-              Reset Password
-            </a>
-          </div>
-          <p style="color: #64748b; font-size: 14px;">Or copy and paste this link into your browser:</p>
-          <p style="color: #2463eb; font-size: 12px; word-break: break-all;">${resetUrl}</p>
-          <p style="color: #64748b; font-size: 14px; margin-top: 30px;">
-            This link will expire in 1 hour. If you didn't request this password reset, please ignore this email.
-          </p>
-          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;">
-          <p style="color: #94a3b8; font-size: 12px; margin: 0;">
-            © ${new Date().getFullYear()} Apply For Me Inc. All rights reserved.
-          </p>
-        </div>
-      </body>
-      </html>
-    `;
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
-    const result = await sendEmailViaZeptoMail(email, 'Password Reset Request - Apply For Me', htmlContent);
-    console.log('Password reset email sent:', result.messageId);
-    return result;
-  } catch (error) {
-    console.error('Error sending password reset email:', error);
-    throw new Error('Failed to send password reset email');
+/**
+ * Password reset link (forgot-password flow). Throws if mail not configured.
+ */
+async function sendPasswordResetEmail(email, _resetToken, resetUrl, options = {}) {
+  if (!isMailConfigured()) {
+    throw new Error('Email service not configured (set ZEPTOMAIL_API_TOKEN in .env)');
   }
-};
+  const siteName = getSiteName();
+  const from = resolveFrom(options);
+  const subject = `${siteName} — Reset your password`;
+  const text = [
+    `You requested a password reset for your ${siteName} account.`,
+    '',
+    `Open this link to choose a new password (valid for 1 hour):`,
+    resetUrl,
+    '',
+    `If you did not request this, you can ignore this email.`,
+    '',
+    `— ${siteName}`
+  ].join('\n');
 
-// Send password reset success email
-const sendPasswordResetSuccessEmail = async (email) => {
-  try {
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Password Reset Successful</title>
-      </head>
-      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background-color: #10b981; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-          <h1 style="color: white; margin: 0;">Apply For Me</h1>
-        </div>
-        <div style="background-color: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
-          <h2 style="color: #111318; margin-top: 0;">Password Reset Successful</h2>
-          <p>Your password has been successfully reset.</p>
-          <p>If you did not make this change, please contact our support team immediately.</p>
-          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;">
-          <p style="color: #94a3b8; font-size: 12px; margin: 0;">
-            © ${new Date().getFullYear()} Apply For Me Inc. All rights reserved.
-          </p>
-        </div>
-      </body>
-      </html>
-    `;
+  const html = `
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.5; color: #0f172a; max-width: 560px;">
+  <p>You requested a password reset for your <strong>${escapeHtml(siteName)}</strong> account.</p>
+  <p><a href="${escapeHtml(resetUrl)}" style="display: inline-block; background: #2563eb; color: #fff; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600;">Reset password</a></p>
+  <p style="font-size: 0.8125rem; word-break: break-all; color: #64748b;">Or copy this link:<br/>${escapeHtml(resetUrl)}</p>
+  <p style="font-size: 0.875rem; color: #64748b;">This link expires in 1 hour. If you did not request this, ignore this email.</p>
+  <p style="margin-top: 24px; font-size: 0.875rem; color: #94a3b8;">— ${escapeHtml(siteName)}</p>
+</body></html>`;
 
-    const result = await sendEmailViaZeptoMail(email, 'Password Reset Successful - Apply For Me', htmlContent);
-    console.log('Password reset success email sent:', result.messageId);
-    return { success: true, messageId: result.messageId };
-  } catch (error) {
-    console.error('Error sending password reset success email:', error);
-    // Don't throw error for success email, just log it
-    return { success: false, error: error.message };
+  await sendZeptoMailApi({
+    from,
+    to: String(email).trim(),
+    subject,
+    text,
+    html
+  });
+}
+
+/**
+ * After successful password change (reset-password flow).
+ */
+async function sendPasswordResetSuccessEmail(email, options = {}) {
+  if (!isMailConfigured()) {
+    console.warn('[emailService] ZeptoMail not configured; password reset success email skipped');
+    return;
   }
-};
+  const siteName = getSiteName();
+  const from = resolveFrom(options);
+  const support = process.env.SUPPORT_EMAIL || process.env.SENDER_EMAIL;
+  const subject = `${siteName} — Your password was changed`;
+  const text = `Your password for ${siteName} was changed successfully.\n\nIf this was not you, contact ${support} immediately.\n\n— ${siteName}`;
+  const html = `<p>Your password for <strong>${escapeHtml(siteName)}</strong> was changed successfully.</p>
+<p style="font-size:0.875rem;color:#64748b;">If this was not you, contact <a href="mailto:${escapeHtml(support)}">${escapeHtml(support)}</a> immediately.</p>`;
 
-// Send job application email
-const sendJobApplicationEmail = async (toEmail, subject, body, attachments = []) => {
-  try {
-    const https = require('https');
-    const http = require('http');
-    
-    // Process attachments - download from URLs if needed for ZeptoMail
-    const processedAttachments = await Promise.all(
-      attachments.map(async (attachment) => {
-        // If attachment has a URL (S3 or other), download it
-        if (attachment.path && (attachment.path.startsWith('http://') || attachment.path.startsWith('https://'))) {
-          try {
-            const fileBuffer = await new Promise((resolve, reject) => {
-              const protocol = attachment.path.startsWith('https://') ? https : http;
-              protocol.get(attachment.path, (response) => {
-                if (response.statusCode !== 200) {
-                  reject(new Error(`Failed to download file: ${response.statusCode}`));
-                  return;
-                }
-                const chunks = [];
-                response.on('data', (chunk) => chunks.push(chunk));
-                response.on('end', () => resolve(Buffer.concat(chunks)));
-                response.on('error', reject);
-              }).on('error', reject);
-            });
-            
-            return {
-              filename: attachment.filename || 'attachment',
-              content: fileBuffer
-            };
-          } catch (downloadError) {
-            console.error(`Error downloading attachment ${attachment.filename}:`, downloadError);
-            throw downloadError;
-          }
-        }
-        // If it's already a buffer, return as-is
-        if (Buffer.isBuffer(attachment.content)) {
-          return {
-            filename: attachment.filename || 'attachment',
-            content: attachment.content
-          };
-        }
-        // Return original attachment
-        return attachment;
-      })
-    );
-    
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Job Application</title>
-      </head>
-      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background-color: #2463eb; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-          <h1 style="color: white; margin: 0;">Apply For Me</h1>
-        </div>
-        <div style="background-color: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
-          <h2 style="color: #111318; margin-top: 0;">Job Application</h2>
-          <div style="white-space: pre-wrap; color: #0f172a; margin: 20px 0;">
-            ${body || 'No message content provided.'}
-          </div>
-          ${processedAttachments.length > 0 ? `
-            <div style="margin-top: 20px; padding: 15px; background-color: #eff6ff; border-radius: 6px; border-left: 4px solid #2463eb;">
-              <p style="margin: 0; color: #0f172a; font-weight: 600;">Attachments:</p>
-              <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #64748b;">
-                ${processedAttachments.map(att => `<li>${att.filename || 'File'}</li>`).join('')}
-              </ul>
-            </div>
-          ` : ''}
-          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;">
-          <p style="color: #94a3b8; font-size: 12px; margin: 0;">
-            © ${new Date().getFullYear()} Apply For Me Inc. All rights reserved.
-          </p>
-        </div>
-      </body>
-      </html>
-    `;
+  await sendZeptoMailApi({
+    from,
+    to: String(email).trim(),
+    subject,
+    text,
+    html
+  });
+}
 
-    const result = await sendEmailViaZeptoMail(
-      toEmail, 
-      subject || 'Job Application - Apply For Me', 
-      htmlContent,
-      processedAttachments.length > 0 ? processedAttachments : []
-    );
-    console.log('Job application email sent:', result.messageId);
-    return { success: true, messageId: result.messageId };
-  } catch (error) {
-    console.error('Error sending job application email:', error);
-    throw new Error('Failed to send email: ' + error.message);
+/**
+ * Job application email to employer (optional file attachments).
+ */
+async function sendJobApplicationEmail(toEmail, subject, body, attachments = [], options = {}) {
+  if (!isMailConfigured()) {
+    throw new Error('Email service not configured (set ZEPTOMAIL_API_TOKEN in .env)');
   }
-};
+  const from = resolveFrom(options);
+  const isHtml = typeof body === 'string' && body.includes('<') && body.includes('>');
+  const text = isHtml ? body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : body;
+  const html = isHtml
+    ? body
+    : `<div style="font-family: system-ui, sans-serif; white-space: pre-wrap;">${escapeHtml(body)}</div>`;
+
+  const subj = subject || 'Application';
+  const att = (attachments || []).filter((a) => a && a.path);
+
+  await sendZeptoMailApi({
+    from,
+    to: String(toEmail).trim(),
+    subject: subj,
+    text,
+    html,
+    attachments: att
+  });
+}
 
 module.exports = {
+  getFromAddress,
+  resolveFrom,
+  isMailConfigured,
+  sendPaymentReceiptEmail,
   sendPasswordResetEmail,
   sendPasswordResetSuccessEmail,
   sendJobApplicationEmail
 };
-
-

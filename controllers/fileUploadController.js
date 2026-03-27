@@ -1,5 +1,6 @@
-const { uploadFileToS3, deleteFileFromS3, getFileBufferFromS3 } = require('../utils/s3Service');
+const { uploadFileToS3, deleteFileFromS3 } = require('../utils/s3Service');
 const User = require('../models/User');
+const { runPostUploadResumePipeline, isAtsEligible } = require('../utils/resumePipeline');
 
 const VALID_UPLOAD_TYPES = ['resume', 'cv', 'academic_transcripts', 'certifications'];
 const TYPE_TO_FIELD = {
@@ -75,73 +76,31 @@ const uploadFile = async (req, res) => {
       [updateField]: fileDetails
     });
 
-    // If resume is uploaded, trigger ATS analysis asynchronously (don't wait for it)
+    // Resume: Starter (no addon) clears ATS; Standard+ / addon runs full ATS + PDF in background
     if (fileType === 'resume') {
-      // Trigger analysis in background (don't block response)
-      setImmediate(async () => {
-        try {
-          // Import the analysis utilities directly to avoid circular dependencies
-          const { extractResumeText, parseResumeStructure } = require('../utils/resumeExtractor');
-          const { analyzeATS } = require('../utils/atsAnalyzer');
-
-          // Get updated user
-          const updatedUser = await User.findById(userId);
-          if (!updatedUser || !updatedUser.resume_details || !updatedUser.resume_details.key) {
-            return;
-          }
-
-          // Check if analysis already exists and is recent (within 24 hours)
-          if (updatedUser.atsReport && updatedUser.atsReport.analyzedAt) {
-            const hoursSinceAnalysis = (Date.now() - new Date(updatedUser.atsReport.analyzedAt).getTime()) / (1000 * 60 * 60);
-            if (hoursSinceAnalysis < 24 && updatedUser.atsReport.originalResumeKey === updatedUser.resume_details.key) {
-              return;
-            }
-          }
-
-          // Get resume file from S3
-          const fileBuffer = await getFileBufferFromS3(updatedUser.resume_details.key);
-          
-          // Extract text from resume
-          const resumeText = await extractResumeText(fileBuffer, updatedUser.resume_details.mimeType);
-          
-          // Parse resume structure
-          const resumeStructure = parseResumeStructure(resumeText);
-
-          // Analyze with OpenAI
-          const analysisResult = await analyzeATS(resumeText, resumeStructure);
-
-          // Save analysis to user
-          const atsReport = {
-            score: analysisResult.score,
-            analyzedAt: new Date(),
-            summary: analysisResult.summary || 'ATS analysis completed',
-            recommendations: analysisResult.recommendations || [],
-            strengths: analysisResult.strengths || [],
-            weaknesses: analysisResult.weaknesses || [],
-            originalResumeKey: updatedUser.resume_details.key
-          };
-
-          await User.findByIdAndUpdate(userId, {
-            atsReport: atsReport
-          });
-
-          console.log(`✅ ATS analysis completed for user ${userId} - Score: ${analysisResult.score}`);
-        } catch (error) {
-          console.error(`❌ Error in background ATS analysis for user ${userId}:`, error);
-          // Don't throw - this is background processing
-        }
-      });
+      setImmediate(() => runPostUploadResumePipeline(userId));
     }
 
-    // Return file details
+    const userAfter = await User.findById(userId).select('subscription.planName purchasedAddons');
+    const eligibleAts = userAfter && isAtsEligible(userAfter);
+
+    const responseMessage =
+      fileType === 'resume'
+        ? eligibleAts
+          ? 'Resume uploaded. ATS analysis and ATS-friendly PDF are generating in the background (may take a minute).'
+          : 'Resume uploaded successfully. Your plan uses your uploaded file as-is.'
+        : `${fileType === 'resume' ? 'Resume' : 'CV'} uploaded successfully`;
+
     res.json({
       success: true,
-      message: `${fileType === 'resume' ? 'Resume' : 'CV'} uploaded successfully`,
-      fileDetails: fileDetails,
-      ...(fileType === 'resume' ? { 
-        atsAnalysisInProgress: true,
-        message: 'Resume uploaded successfully. ATS analysis in progress...'
-      } : {})
+      message: responseMessage,
+      fileDetails,
+      ...(fileType === 'resume'
+        ? {
+            atsPipelineInProgress: !!eligibleAts,
+            atsNotIncluded: !eligibleAts
+          }
+        : {})
     });
   } catch (error) {
     console.error('Error uploading file:', error);
@@ -185,8 +144,13 @@ const deleteFile = async (req, res) => {
       console.error('Error deleting file from S3:', error);
     }
 
+    const unsetPayload = { [updateField]: 1 };
+    if (fileType === 'resume') {
+      unsetPayload.atsReport = 1;
+    }
+
     await User.findByIdAndUpdate(userId, {
-      $unset: { [updateField]: 1 }
+      $unset: unsetPayload
     });
 
     res.json({

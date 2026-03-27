@@ -97,7 +97,13 @@ const paymentSchema = new mongoose.Schema({
     default: Date.now
   },
   
-  completedAt: Date
+  completedAt: Date,
+
+  /** Set when payment receipt email was sent successfully (idempotency / retry) */
+  receiptEmailSentAt: {
+    type: Date,
+    default: null
+  }
 }, {
   timestamps: true
 });
