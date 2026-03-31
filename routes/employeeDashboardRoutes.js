@@ -7,6 +7,7 @@ const {
   updateJobStatus, 
   updateJobEmailData, 
   uploadJobFile, 
+  uploadCustomerResumeForJob,
   deleteJobFile, 
   deleteJob,
   assignJobToEmployee,
@@ -95,6 +96,36 @@ const uploadMiddleware = (req, res, next) => {
   });
 };
 
+/** Customer profile resume — same types as dashboard upload; 10MB to match user /api/upload/resume */
+const uploadCustomerResumeMulter = multer({
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF, DOC, or DOCX files are allowed'), false);
+    }
+  }
+}).single('file');
+
+const uploadCustomerResumeMiddleware = (req, res, next) => {
+  uploadCustomerResumeMulter(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({
+        success: false,
+        error: err.message
+      });
+    }
+    next();
+  });
+};
+
 // Middleware for profile picture upload
 const uploadPictureMiddleware = (req, res, next) => {
   uploadPicture(req, res, (err) => {
@@ -133,6 +164,7 @@ router.patch('/jobs/:jobId/email', updateJobEmailData);
 router.patch('/jobs/:jobId/notes', updateJobNotes);
 router.patch('/jobs/:jobId/metadata', updateJobMetadata);
 router.post('/jobs/:jobId/customize-resume', customizeResume);
+router.post('/jobs/:jobId/customer-resume', uploadCustomerResumeMiddleware, uploadCustomerResumeForJob);
 router.patch('/jobs/:jobId/assign', assignJobToEmployee);
 router.patch('/jobs/:jobId/unassign', unassignJobFromEmployee);
 router.post('/jobs/:jobId/files/:fileType', uploadMiddleware, uploadJobFile);

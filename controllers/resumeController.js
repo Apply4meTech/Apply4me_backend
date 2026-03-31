@@ -5,6 +5,42 @@ const { getSignedUrl, getFileBufferFromS3 } = require('../utils/s3Service');
 const { isAtsEligible, optimizeResumeFromUserDoc } = require('../utils/resumePipeline');
 
 /**
+ * Ensure user has ATS analysis for the *current* resume file (same logic as POST /analyze).
+ * Used when optimizing so callers do not hit "analyze first" after upload or resume replace.
+ */
+async function ensureAtsReportForCurrentResume(userId) {
+  let user = await User.findById(userId);
+  if (!user?.resume_details?.key) return user;
+
+  const keyMatches =
+    user.atsReport?.originalResumeKey &&
+    user.atsReport.originalResumeKey === user.resume_details.key;
+  const hasScore = user.atsReport && user.atsReport.score != null;
+
+  if (hasScore && keyMatches) {
+    return user;
+  }
+
+  const fileBuffer = await getFileBufferFromS3(user.resume_details.key);
+  const resumeText = await extractResumeText(fileBuffer, user.resume_details.mimeType);
+  const resumeStructure = parseResumeStructure(resumeText);
+  const analysisResult = await analyzeATS(resumeText, resumeStructure);
+
+  const atsReport = {
+    score: analysisResult.score,
+    analyzedAt: new Date(),
+    summary: analysisResult.summary || 'ATS analysis completed',
+    recommendations: analysisResult.recommendations || [],
+    strengths: analysisResult.strengths || [],
+    weaknesses: analysisResult.weaknesses || [],
+    originalResumeKey: user.resume_details.key
+  };
+
+  await User.findByIdAndUpdate(userId, { atsReport });
+  return User.findById(userId);
+}
+
+/**
  * Analyze resume for ATS compatibility
  * POST /api/resume/analyze
  * Query param: force=true to force re-analysis
@@ -145,7 +181,7 @@ const getATSReport = async (req, res) => {
 const optimizeResume = async (req, res) => {
   try {
     const userId = req.userId;
-    const user = await User.findById(userId);
+    let user = await User.findById(userId);
 
     if (!user || !user.resume_details || !user.resume_details.key) {
       return res.status(404).json({
@@ -154,18 +190,19 @@ const optimizeResume = async (req, res) => {
       });
     }
 
-    if (!user.atsReport || !user.atsReport.score) {
-      return res.status(400).json({
-        success: false,
-        error: 'Please analyze your resume first before optimizing.'
-      });
-    }
-
     if (!isAtsEligible(user)) {
       return res.status(403).json({
         success: false,
         error:
           'ATS resume optimization requires Standard, Pro, Premium, or the Custom Resume Rewrite add-on.'
+      });
+    }
+
+    user = await ensureAtsReportForCurrentResume(userId);
+    if (!user.atsReport || user.atsReport.score == null) {
+      return res.status(500).json({
+        success: false,
+        error: 'Could not complete ATS analysis. Please try again in a moment.'
       });
     }
 

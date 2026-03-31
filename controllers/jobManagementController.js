@@ -1,5 +1,6 @@
 const Job = require('../models/Job');
 const User = require('../models/User');
+const { applyResumeUploadForUserId } = require('./fileUploadController');
 const { uploadFileToS3, deleteFileFromS3, getSignedUrl, getFileBufferFromS3 } = require('../utils/s3Service');
 const { extractResumeText } = require('../utils/resumeExtractor');
 const { customizeResumeForJob } = require('../utils/resumeCustomizer');
@@ -364,6 +365,77 @@ const uploadJobFile = async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to upload file',
+      details: error.message
+    });
+  }
+};
+
+/**
+ * Replace the linked customer's profile resume (prefetched ATS + original in Fill Data).
+ * POST /api/employee/jobs/:jobId/customer-resume
+ */
+const uploadCustomerResumeForJob = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const employeeId = req.employeeId;
+    const employee = req.employee;
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file provided'
+      });
+    }
+
+    const job = await Job.findById(jobId);
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    if (employee.role !== 'super_admin') {
+      if (!job.assignedTo || job.assignedTo.toString() !== employeeId.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'You do not have permission to update this job'
+        });
+      }
+    }
+
+    if (!job.userId) {
+      return res.status(400).json({
+        success: false,
+        error:
+          'This job is not linked to a registered customer. Upload the job-specific resume in Upload Files below instead.'
+      });
+    }
+
+    const { fileDetails, eligibleAts, message } = await applyResumeUploadForUserId(
+      job.userId.toString(),
+      req.file
+    );
+
+    res.json({
+      success: true,
+      message,
+      fileDetails,
+      atsPipelineInProgress: !!eligibleAts,
+      atsNotIncluded: !eligibleAts
+    });
+  } catch (error) {
+    console.error('Error uploading customer profile resume:', error);
+    if (error.statusCode === 404) {
+      return res.status(404).json({
+        success: false,
+        error: error.message
+      });
+    }
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update customer resume',
       details: error.message
     });
   }
@@ -939,6 +1011,7 @@ module.exports = {
   updateJobStatus,
   updateJobEmailData,
   uploadJobFile,
+  uploadCustomerResumeForJob,
   deleteJobFile,
   deleteJob,
   assignJobToEmployee,

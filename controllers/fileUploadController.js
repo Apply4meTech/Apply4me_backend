@@ -17,6 +17,79 @@ const TYPE_TO_FOLDER = {
 };
 
 /**
+ * Replace the customer's profile resume (same behavior as POST /api/upload/resume).
+ * Used by authenticated user upload and by employee Fill Data modal.
+ * @param {string} userId
+ * @param {{ buffer: Buffer, originalname: string, mimetype: string }} file
+ */
+async function applyResumeUploadForUserId(userId, file) {
+  const user = await User.findById(userId);
+  if (!user) {
+    const err = new Error('User not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const existingDetails = user.resume_details;
+  if (existingDetails && existingDetails.key) {
+    try {
+      await deleteFileFromS3(existingDetails.key);
+    } catch (error) {
+      console.error('Error deleting old resume:', error);
+    }
+  }
+
+  if (user.atsReport) {
+    const optKey =
+      user.atsReport.optimizedResumeKey || user.atsReport.optimizedResumeDetails?.key;
+    if (optKey) {
+      try {
+        await deleteFileFromS3(optKey);
+      } catch (error) {
+        console.error('Error deleting old optimized resume from S3:', error);
+      }
+    }
+  }
+
+  const uploadResult = await uploadFileToS3(
+    file.buffer,
+    file.originalname,
+    file.mimetype,
+    'resumes'
+  );
+
+  const fileDetails = {
+    fileName: uploadResult.fileName,
+    fileSize: uploadResult.fileSize,
+    resourceId: uploadResult.resourceId,
+    url: uploadResult.url,
+    key: uploadResult.key,
+    bucket: uploadResult.bucket,
+    mimeType: uploadResult.mimeType,
+    uploadedAt: uploadResult.uploadedAt || new Date()
+  };
+
+  await User.findByIdAndUpdate(userId, {
+    $set: { resume_details: fileDetails },
+    $unset: { atsReport: 1 }
+  });
+  setImmediate(() => runPostUploadResumePipeline(userId));
+
+  const userAfter = await User.findById(userId).select('subscription.planName purchasedAddons');
+  const eligibleAts = userAfter && isAtsEligible(userAfter);
+
+  const message = eligibleAts
+    ? 'Resume uploaded. ATS analysis and ATS-friendly PDF are generating in the background (may take a minute).'
+    : 'Resume uploaded successfully. This plan uses the uploaded file as-is.';
+
+  return {
+    fileDetails,
+    eligibleAts,
+    message
+  };
+}
+
+/**
  * Upload file to S3 (Resume, CV, Academic Transcripts, Certifications)
  * POST /api/upload/resume | /api/upload/cv | /api/upload/academic_transcripts | /api/upload/certifications
  */
@@ -36,6 +109,17 @@ const uploadFile = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Invalid file type. Use "resume", "cv", "academic_transcripts", or "certifications"'
+      });
+    }
+
+    if (fileType === 'resume') {
+      const { fileDetails, eligibleAts, message } = await applyResumeUploadForUserId(userId, req.file);
+      return res.json({
+        success: true,
+        message,
+        fileDetails,
+        atsPipelineInProgress: !!eligibleAts,
+        atsNotIncluded: !eligibleAts
       });
     }
 
@@ -59,7 +143,6 @@ const uploadFile = async (req, res) => {
       folder
     );
 
-    // Prepare file details object (matching the structure from s3Service)
     const fileDetails = {
       fileName: uploadResult.fileName,
       fileSize: uploadResult.fileSize,
@@ -71,36 +154,14 @@ const uploadFile = async (req, res) => {
       uploadedAt: uploadResult.uploadedAt || new Date()
     };
 
-    // Save to database immediately
     await User.findByIdAndUpdate(userId, {
       [updateField]: fileDetails
     });
 
-    // Resume: Starter (no addon) clears ATS; Standard+ / addon runs full ATS + PDF in background
-    if (fileType === 'resume') {
-      setImmediate(() => runPostUploadResumePipeline(userId));
-    }
-
-    const userAfter = await User.findById(userId).select('subscription.planName purchasedAddons');
-    const eligibleAts = userAfter && isAtsEligible(userAfter);
-
-    const responseMessage =
-      fileType === 'resume'
-        ? eligibleAts
-          ? 'Resume uploaded. ATS analysis and ATS-friendly PDF are generating in the background (may take a minute).'
-          : 'Resume uploaded successfully. Your plan uses your uploaded file as-is.'
-        : `${fileType === 'resume' ? 'Resume' : 'CV'} uploaded successfully`;
-
     res.json({
       success: true,
-      message: responseMessage,
-      fileDetails,
-      ...(fileType === 'resume'
-        ? {
-            atsPipelineInProgress: !!eligibleAts,
-            atsNotIncluded: !eligibleAts
-          }
-        : {})
+      message: `${fileType} uploaded successfully`,
+      fileDetails
     });
   } catch (error) {
     console.error('Error uploading file:', error);
@@ -208,5 +269,6 @@ const getFileUrl = async (req, res) => {
 module.exports = {
   uploadFile,
   deleteFile,
-  getFileUrl
+  getFileUrl,
+  applyResumeUploadForUserId
 };
