@@ -1,5 +1,6 @@
 const {
   sendPaymentReceiptEmail,
+  sendRegistrationWelcomeEmail,
   sendPasswordResetEmail,
   sendPasswordResetSuccessEmail,
   sendJobApplicationEmail,
@@ -52,8 +53,13 @@ const listTestEmailTypes = (req, res) => {
     types: [
       {
         type: 'payment_receipt',
-        description: 'Payment received / receipt',
+        description: 'Payment received / tax invoice',
         example: { type: 'payment_receipt', to: 'you@example.com' }
+      },
+      {
+        type: 'registration_welcome',
+        description: 'Sign-up confirmation (before payment)',
+        example: { type: 'registration_welcome', to: 'you@example.com' }
       },
       {
         type: 'password_reset',
@@ -104,7 +110,9 @@ const sendTestEmail = async (req, res) => {
             planName: 'Starter',
             billingPeriod: 'onetime',
             paymentIntentId: 'pi_test_postman_sample_001',
-            completedAt: new Date()
+            completedAt: new Date(),
+            invoiceId: 'test_invoice_id_001',
+            websiteUrl: baseUrl
           },
           {}
         );
@@ -120,6 +128,13 @@ const sendTestEmail = async (req, res) => {
       }
       case 'password_reset_success': {
         await sendPasswordResetSuccessEmail(to, {});
+        break;
+      }
+      case 'registration_welcome': {
+        const result = await sendRegistrationWelcomeEmail(to, 'Test User', {});
+        if (!result.sent) {
+          return res.status(502).json({ success: false, error: result.error || 'send failed', from: mailFrom() });
+        }
         break;
       }
       case 'job_application': {

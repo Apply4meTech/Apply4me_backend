@@ -293,6 +293,16 @@ const UserSchema = new mongoose.Schema({
   previousRoles: { type: String, trim: true },
   keyResponsibilities: { type: String, trim: true },
   keyAchievements: { type: String, trim: true },
+  employmentHistory: [
+    {
+      jobTitle: { type: String, trim: true },
+      company: { type: String, trim: true },
+      startDate: { type: String, trim: true },
+      endDate: { type: String, trim: true },
+      isCurrent: { type: Boolean, default: false },
+      responsibilities: { type: String, trim: true },
+    },
+  ],
   // Compliance & Checks
   policeCheck: { type: String, trim: true },
   workingWithChildrenCheck: { type: String, trim: true },

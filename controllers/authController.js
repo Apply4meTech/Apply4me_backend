@@ -4,7 +4,7 @@ const Newsletter = require('../models/Newsletter');
 const Affiliate = require('../models/Affiliate');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { sendPasswordResetEmail, sendPasswordResetSuccessEmail } = require('../utils/emailService');
+const { sendPasswordResetEmail, sendPasswordResetSuccessEmail, sendRegistrationWelcomeEmail } = require('../utils/emailService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
@@ -71,7 +71,10 @@ const signup = async (req, res) => {
     });
     const isNewsletterSubscribed = !!newsletterSubscription;
 
-    
+    sendRegistrationWelcomeEmail(user.email, user.name).catch((err) =>
+      console.warn('[signup] registration email:', err.message)
+    );
+
     res.status(201).json({
       success: true,
       message: 'User created successfully',

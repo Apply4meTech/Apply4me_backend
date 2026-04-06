@@ -52,6 +52,7 @@ const saveOnboarding = async (req, res) => {
       previousRoles,
       keyResponsibilities,
       keyAchievements,
+      employmentHistory,
       // Step 5: Compliance & Checks
       policeCheck,
       workingWithChildrenCheck,
@@ -192,6 +193,16 @@ const saveOnboarding = async (req, res) => {
     if (previousRoles !== undefined) updateData.previousRoles = previousRoles;
     if (keyResponsibilities !== undefined) updateData.keyResponsibilities = keyResponsibilities;
     if (keyAchievements !== undefined) updateData.keyAchievements = keyAchievements;
+    if (employmentHistory !== undefined && Array.isArray(employmentHistory)) {
+      updateData.employmentHistory = employmentHistory.map((row) => ({
+        jobTitle: row.jobTitle || '',
+        company: row.company || '',
+        startDate: row.startDate || '',
+        endDate: row.isCurrent ? '' : (row.endDate || ''),
+        isCurrent: !!row.isCurrent,
+        responsibilities: row.responsibilities || '',
+      }));
+    }
 
     // Step 5: Compliance & Checks
     if (policeCheck !== undefined) updateData.policeCheck = policeCheck;

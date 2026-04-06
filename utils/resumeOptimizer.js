@@ -46,6 +46,8 @@ const RESUME_JSON_INSTRUCTION = `Return a single JSON object (no markdown, no co
 
 Rules:
 - Preserve all factual data from the resume; do not invent employers, degrees, or dates.
+- Improve wording and content: rewrite weak bullets into strong, results-oriented lines; add metrics only when clearly implied or stated in the source.
+- Strengthen keywords and clarity for ATS; do not only reformat — improve how achievements and responsibilities read.
 - Omit empty arrays or use empty strings for missing optional fields.
 - Every experience entry should have at least title or company and at least one bullet when the source had bullets.
 - Use concise, ATS-friendly wording in bullets.`;
@@ -72,7 +74,9 @@ ${resumeText}
 HIGH-PRIORITY ATS ISSUES TO ADDRESS:
 ${highPriorityIssues || 'General ATS optimization'}
 
-Optimize for ATS while keeping every fact accurate (names, dates, employers, schools, titles). Improve keywords and clarity where appropriate.
+Rewrite and improve the resume content—not just layout. Strengthen bullet points (action verbs, outcomes, scope). Tighten summaries. Align terminology with common job-posting language where it matches the candidate's real experience. Do not invent facts.
+
+Keep every fact accurate (names, dates, employers, schools, titles).
 
 ${RESUME_JSON_INSTRUCTION}`;
 

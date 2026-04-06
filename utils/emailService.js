@@ -56,7 +56,9 @@ async function sendPaymentReceiptEmail(opts, options = {}) {
     planName,
     billingPeriod,
     paymentIntentId,
-    completedAt
+    completedAt,
+    invoiceId,
+    websiteUrl
   } = opts;
 
   if (!to || !String(to).trim()) {
@@ -71,6 +73,9 @@ async function sendPaymentReceiptEmail(opts, options = {}) {
   const from = resolveFrom(options);
   const siteName = getSiteName();
   const supportEmail = process.env.SUPPORT_EMAIL || process.env.SENDER_EMAIL;
+  const siteUrl = (websiteUrl || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+  const invoiceRef = invoiceId || paymentIntentId || '';
+  const txDisplay = paymentIntentId ? String(paymentIntentId) : '—';
   const money = formatMoney(amount, currency);
   const planLabel = planDisplayName(planName);
   const periodLabel =
@@ -89,17 +94,21 @@ async function sendPaymentReceiptEmail(opts, options = {}) {
     '',
     `Thank you for your payment to ${siteName}.`,
     '',
-    'Payment receipt',
+    'Tax invoice / Payment receipt',
+    invoiceRef ? `Invoice reference: ${invoiceRef}` : '',
     `Amount: ${money}`,
     `Plan / product: ${planLabel}`,
     `Billing: ${periodLabel}`,
-    `Transaction ID: ${paymentIntentId}`,
+    `Transaction ID: ${txDisplay}`,
     `Date: ${when}`,
+    siteUrl ? `Website: ${siteUrl}` : '',
     '',
     `If you have questions, contact us at ${supportEmail}.`,
     '',
     `— ${siteName}`
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   const html = `
 <!DOCTYPE html>
@@ -109,12 +118,14 @@ async function sendPaymentReceiptEmail(opts, options = {}) {
   <p>${greeting}</p>
   <p>Thank you for your payment to <strong>${escapeHtml(siteName)}</strong>.</p>
   <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 20px; margin: 20px 0; background: #f8fafc;">
-    <h2 style="margin: 0 0 12px; font-size: 1rem; color: #334155;">Payment receipt</h2>
+    <h2 style="margin: 0 0 12px; font-size: 1rem; color: #334155;">Tax invoice / Payment receipt</h2>
+    <p style="margin: 0 0 12px; font-size: 0.875rem; color: #64748b;"><strong>${escapeHtml(siteName)}</strong>${siteUrl ? ` · <a href="${escapeHtml(siteUrl)}" style="color: #2563eb;">${escapeHtml(siteUrl)}</a>` : ''}</p>
     <table style="width: 100%; border-collapse: collapse; font-size: 0.9375rem;">
+      ${invoiceRef ? `<tr><td style="padding: 4px 0; color: #64748b;">Invoice reference</td><td style="padding: 4px 0; text-align: right; font-size: 0.8125rem; word-break: break-all;">${escapeHtml(invoiceRef)}</td></tr>` : ''}
       <tr><td style="padding: 4px 0; color: #64748b;">Amount</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${escapeHtml(money)}</td></tr>
       <tr><td style="padding: 4px 0; color: #64748b;">Plan / product</td><td style="padding: 4px 0; text-align: right;">${escapeHtml(planLabel)}</td></tr>
       <tr><td style="padding: 4px 0; color: #64748b;">Billing</td><td style="padding: 4px 0; text-align: right;">${escapeHtml(periodLabel)}</td></tr>
-      <tr><td style="padding: 4px 0; color: #64748b;">Transaction ID</td><td style="padding: 4px 0; text-align: right; font-size: 0.8125rem; word-break: break-all;">${escapeHtml(paymentIntentId)}</td></tr>
+      <tr><td style="padding: 4px 0; color: #64748b;">Transaction ID</td><td style="padding: 4px 0; text-align: right; font-size: 0.8125rem; word-break: break-all;">${escapeHtml(txDisplay)}</td></tr>
       <tr><td style="padding: 4px 0; color: #64748b;">Date</td><td style="padding: 4px 0; text-align: right;">${escapeHtml(when)}</td></tr>
     </table>
   </div>
@@ -123,7 +134,7 @@ async function sendPaymentReceiptEmail(opts, options = {}) {
 </body>
 </html>`;
 
-  const subject = `${siteName} — Payment receipt (${money})`;
+  const subject = `${siteName} — Invoice / Receipt (${money})`;
   try {
     await sendZeptoMailApi({
       from,
@@ -240,11 +251,71 @@ async function sendJobApplicationEmail(toEmail, subject, body, attachments = [],
   });
 }
 
+/**
+ * Registration confirmation (after sign-up, before payment). Never throws.
+ */
+async function sendRegistrationWelcomeEmail(to, recipientName, options = {}) {
+  if (!to || !String(to).trim()) {
+    return { sent: false, error: 'missing_email' };
+  }
+  if (!isMailConfigured()) {
+    console.warn('[emailService] ZeptoMail not configured; registration email skipped');
+    return { sent: false, error: 'mail_not_configured' };
+  }
+  const siteName = getSiteName();
+  const from = resolveFrom(options);
+  const siteUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+  const supportEmail = process.env.SUPPORT_EMAIL || process.env.SENDER_EMAIL;
+  const greeting = recipientName ? `Hi ${recipientName},` : 'Hi,';
+  const subject = `${siteName} — You're registered`;
+  const text = [
+    greeting,
+    '',
+    `Thanks for creating your ${siteName} account.`,
+    '',
+    'Next: complete onboarding and choose a plan when you are ready.',
+    siteUrl ? `Open the app: ${siteUrl}` : '',
+    '',
+    `Questions? Reply to this email or write to ${supportEmail}.`,
+    '',
+    `— ${siteName}`
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const html = `
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.5; color: #0f172a; max-width: 560px;">
+  <p>${greeting}</p>
+  <p>Thanks for creating your <strong>${escapeHtml(siteName)}</strong> account.</p>
+  <p style="font-size: 0.9375rem; color: #334155;">Next: complete onboarding and choose a plan when you are ready.</p>
+  ${siteUrl ? `<p><a href="${escapeHtml(siteUrl)}" style="display: inline-block; background: #2563eb; color: #fff; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600;">Go to ${escapeHtml(siteName)}</a></p>` : ''}
+  <p style="font-size: 0.875rem; color: #64748b;">Questions? Contact <a href="mailto:${escapeHtml(supportEmail)}">${escapeHtml(supportEmail)}</a>.</p>
+  <p style="margin-top: 24px; font-size: 0.875rem; color: #94a3b8;">— ${escapeHtml(siteName)}</p>
+</body></html>`;
+
+  try {
+    await sendZeptoMailApi({
+      from,
+      to: String(to).trim(),
+      subject,
+      text,
+      html
+    });
+    return { sent: true };
+  } catch (err) {
+    console.error('[emailService] sendRegistrationWelcomeEmail failed:', err.message);
+    return { sent: false, error: err.message };
+  }
+}
+
 module.exports = {
   getFromAddress,
   resolveFrom,
   isMailConfigured,
   sendPaymentReceiptEmail,
+  sendRegistrationWelcomeEmail,
   sendPasswordResetEmail,
   sendPasswordResetSuccessEmail,
   sendJobApplicationEmail

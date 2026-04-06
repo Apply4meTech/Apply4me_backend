@@ -30,7 +30,9 @@ async function sendReceiptIfNeeded(payment) {
       planName: payment.planName,
       billingPeriod: payment.billingPeriod,
       paymentIntentId: payment.stripePaymentIntentId,
-      completedAt: payment.completedAt || new Date()
+      completedAt: payment.completedAt || new Date(),
+      invoiceId: payment._id?.toString?.(),
+      websiteUrl: process.env.FRONTEND_URL || 'http://localhost:3000'
     });
     if (result.sent) {
       payment.receiptEmailSentAt = new Date();
