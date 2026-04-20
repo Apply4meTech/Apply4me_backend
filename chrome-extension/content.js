@@ -85,6 +85,142 @@
     return url.includes('indeed.com');
   }
 
+  // Hostnames (suffix match) for ApplyForMe-supported job boards — keep in sync with manifest.json matches
+  const HOST_PLATFORM_MAP = [
+    ['seek.com.au', 'seek'],
+    ['indeed.com', 'indeed'],
+    ['jora.com', 'jora'],
+    ['careerone.com.au', 'careerone'],
+    ['adzuna.com.au', 'adzuna'],
+    ['jobsearch.gov.au', 'jobsearch'],
+    ['workforceaustralia.gov.au', 'workforceaustralia'],
+    ['linkedin.com', 'linkedin'],
+    ['ethicaljobs.com.au', 'ethicaljobs'],
+    ['probonoaustralia.com.au', 'probonoaustralia'],
+    ['engineeringjobs.com.au', 'engineeringjobs'],
+    ['techcareers.com.au', 'techcareers'],
+    ['launchgraduate.com.au', 'launchgraduate'],
+    ['gradconnection.com.au', 'gradconnection'],
+    ['freelancer.com.au', 'freelancer'],
+    ['hays.com.au', 'hays'],
+    ['hudson.com', 'hudson'],
+    ['michaelpage.com.au', 'michaelpage'],
+    ['roberthalf.com.au', 'roberthalf'],
+    ['randstad.com.au', 'randstad'],
+    ['adecco.com.au', 'adecco']
+  ];
+
+  function hostMatchesSupportedBoard(hostname) {
+    const host = (hostname || '').toLowerCase();
+    return HOST_PLATFORM_MAP.some(([suffix]) => host === suffix || host.endsWith('.' + suffix));
+  }
+
+  function getPlatformIdForHost(hostname) {
+    const host = (hostname || '').toLowerCase();
+    for (let i = 0; i < HOST_PLATFORM_MAP.length; i++) {
+      const suffix = HOST_PLATFORM_MAP[i][0];
+      if (host === suffix || host.endsWith('.' + suffix)) {
+        return HOST_PLATFORM_MAP[i][1];
+      }
+    }
+    return 'web';
+  }
+
+  /** Sites that use og:title / h1 heuristics instead of LinkedIn-specific DOM */
+  function shouldUseGenericExtractor() {
+    const h = window.location.hostname.toLowerCase();
+    if (h.includes('linkedin.com')) return false;
+    if (h.includes('indeed.com')) return false;
+    return hostMatchesSupportedBoard(h);
+  }
+
+  function extractGenericJobData() {
+    const platform = getPlatformIdForHost(window.location.hostname);
+    const data = {
+      title: '',
+      company: '',
+      location: '',
+      jobUrl: window.location.href.split('#')[0],
+      platform,
+      metadata: { extractor: 'generic' },
+      timestamp: new Date().toISOString()
+    };
+
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle && ogTitle.getAttribute('content')) {
+      data.title = ogTitle.getAttribute('content').trim();
+    }
+    if (!data.title) {
+      const twTitle = document.querySelector('meta[name="twitter:title"]');
+      if (twTitle && twTitle.getAttribute('content')) {
+        data.title = twTitle.getAttribute('content').trim();
+      }
+    }
+    if (!data.title) {
+      const h1 = document.querySelector('h1');
+      if (h1 && h1.innerText) {
+        const line = h1.innerText.trim().split('\n')[0];
+        if (line.length > 2 && line.length < 300) data.title = line;
+      }
+    }
+    if (!data.title) {
+      const t = document.title || '';
+      data.title = t.replace(/\s*[|\u2013\u2014-]\s*.*$/, '').trim() || t.trim();
+    }
+
+    const ogCompany = document.querySelector('meta[property="og:site_name"]');
+    if (ogCompany && ogCompany.getAttribute('content')) {
+      data.company = ogCompany.getAttribute('content').trim();
+    }
+
+    const metaDesc = document.querySelector('meta[name="description"]');
+    if (metaDesc && metaDesc.getAttribute('content') && !data.company) {
+      const m = metaDesc.getAttribute('content').match(/at\s+([^.|]+)/i);
+      if (m) data.company = m[1].trim();
+    }
+
+    return data;
+  }
+
+  function shouldShowButtonGenericJobBoard() {
+    const path = window.location.pathname.toLowerCase();
+    const url = window.location.href.toLowerCase();
+
+    const denyPrefixes = [
+      '/login', '/signin', '/sign-in', '/signup', '/sign-up', '/register',
+      '/account', '/settings', '/privacy', '/terms', '/help', '/contact',
+      '/cart', '/checkout', '/oauth', '/authorize'
+    ];
+    for (let i = 0; i < denyPrefixes.length; i++) {
+      if (path.startsWith(denyPrefixes[i])) return false;
+    }
+
+    const segments = path.split('/').filter(Boolean);
+    if (segments.length === 0) return false;
+
+    if (segments.length === 1 && (segments[0] === 'jobs' || segments[0] === 'job')) {
+      return false;
+    }
+
+    const jobLike = /\/(job|jobs|vacancy|vacancies|position|positions|role|roles|opportunity|opportunities|listing|careers)\b/i;
+    if (jobLike.test(path)) return true;
+
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get('jobid') || sp.get('job_id') || sp.get('vacancyid') || sp.get('listing_id')) return true;
+
+    if (segments.length >= 2) {
+      const last = segments[segments.length - 1];
+      if (/^\d{5,}$/.test(last)) return true;
+      if (last.length > 12 && /[0-9]{4,}/.test(last)) return true;
+    }
+
+    if (segments.length >= 3) return true;
+
+    if (url.includes('/view') || url.includes('/detail')) return true;
+
+    return segments.length >= 2;
+  }
+
   // Extract job data from Indeed page
   function extractIndeedJobData() {
     const data = {
@@ -163,6 +299,10 @@
     // Check if we're on Indeed first
     if (isIndeedPage()) {
       return extractIndeedJobData();
+    }
+
+    if (shouldUseGenericExtractor()) {
+      return extractGenericJobData();
     }
 
     const data = {
@@ -617,6 +757,7 @@
     try {
       const jobData = extractJobData();
       const isIndeed = isIndeedPage();
+      const isGeneric = shouldUseGenericExtractor();
 
       // More lenient validation - allow saving even if some fields are missing
       // If we have a jobId, we can save with minimal data
@@ -624,7 +765,9 @@
       const currentJobId = urlParams.get('currentJobId');
       
       if (!jobData.title && !jobData.company && !currentJobId) {
-        if (isIndeed) {
+        if (isGeneric) {
+          // URL + platform are enough; title defaults below
+        } else if (isIndeed) {
           throw new Error('Could not extract job details. Please make sure a job is selected on Indeed.');
         } else {
           const isSearchPage = window.location.href.includes('/jobs/search') || 
@@ -650,6 +793,13 @@
                          document.querySelector('h2');
           if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 3) {
             jobData.title = titleEl.innerText.trim();
+          } else {
+            jobData.title = 'Job title Not found';
+          }
+        } else if (isGeneric) {
+          const titleEl = document.querySelector('h1');
+          if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 3) {
+            jobData.title = titleEl.innerText.trim().split('\n')[0];
           } else {
             jobData.title = 'Job title Not found';
           }
@@ -826,8 +976,16 @@
       // Default: don't show for other Indeed pages without job selection
       return false;
     }
+
+    if (shouldUseGenericExtractor()) {
+      return shouldShowButtonGenericJobBoard();
+    }
     
     // Handle LinkedIn pages (existing logic)
+    if (!window.location.hostname.toLowerCase().includes('linkedin.com')) {
+      return false;
+    }
+
     // Don't show on main jobs listing page
     if (url === 'https://www.linkedin.com/jobs/' || 
         url === 'https://www.linkedin.com/jobs' ||
@@ -923,9 +1081,9 @@
     return url.includes('indeed.com');
   }
 
-  // Check if we're on any supported job platform
+  // Check if we're on any supported job platform (same host list as manifest)
   function isSupportedJobsPage() {
-    return isLinkedInJobsPage() || isIndeedJobsPage();
+    return hostMatchesSupportedBoard(window.location.hostname);
   }
 
   // Initialize or update button based on current page state
@@ -1153,6 +1311,7 @@
       console.log('- Button exists:', !!document.getElementById(BUTTON_ID));
       console.log('- Is LinkedIn page:', isLinkedInJobsPage());
       console.log('- Is Indeed page:', isIndeedJobsPage());
+      console.log('- Generic extractor:', shouldUseGenericExtractor());
       console.log('- Is supported page:', isSupportedJobsPage());
       console.log('- Should show button:', shouldShowButton());
       console.log('- Body exists:', !!document.body);

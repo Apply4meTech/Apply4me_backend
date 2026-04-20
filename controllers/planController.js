@@ -272,11 +272,11 @@ const seedPlans = async (req, res) => {
         name: 'Starter',
         price: 89,
         actualPrice: 119,
-        description: '0 Jobs (Add-Ons available)',
+        description: '15 Jobs (Add-Ons available)',
         currency: 'AUD',
         billingPeriod: 'onetime',
         features: [
-          { text: '0 Jobs (Add-Ons available)', included: true },
+          { text: 'Job search by our team: 15 applications we submit (*Add-Ons available)', included: true },
           { text: 'Human Assistant', included: true },
           { text: 'Standard cover letters', included: true },
           { text: 'Real-time progress updates', included: true }
@@ -285,7 +285,7 @@ const seedPlans = async (req, res) => {
         badge: null,
         isActive: true,
         displayOrder: 1,
-        jobApplicationsLimit: 0
+        jobApplicationsLimit: 15
       },
       {
         name: 'Standard',
@@ -295,7 +295,7 @@ const seedPlans = async (req, res) => {
         currency: 'AUD',
         billingPeriod: 'onetime',
         features: [
-          { text: '90 Jobs', included: true },
+          { text: 'Job search by our team: 90 applications we submit', included: true },
           { text: 'Human Assistant', included: true },
           { text: 'Custom cover letters', included: true },
           { text: 'Resume Tailored Per Job', included: true },
@@ -315,7 +315,7 @@ const seedPlans = async (req, res) => {
         currency: 'AUD',
         billingPeriod: 'onetime',
         features: [
-          { text: '190 Jobs', included: true },
+          { text: 'Job search by our team: 190 applications we submit', included: true },
           { text: 'Human Assistant', included: true },
           { text: 'Custom cover letters', included: true },
           { text: 'Resume Tailored Per Job', included: true },
@@ -336,7 +336,7 @@ const seedPlans = async (req, res) => {
         currency: 'AUD',
         billingPeriod: 'onetime',
         features: [
-          { text: '350 Jobs', included: true },
+          { text: 'Job search by our team: 350 applications we submit', included: true },
           { text: 'Dedicated Human Assistant', included: true },
           { text: 'Custom cover letters', included: true },
           { text: 'Resume Tailored Per Job', included: true },
