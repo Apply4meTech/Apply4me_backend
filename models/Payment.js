@@ -105,6 +105,12 @@ const paymentSchema = new mongoose.Schema({
     default: null
   },
 
+  /** Set when Chrome extension guide email was sent successfully */
+  chromeGuideEmailSentAt: {
+    type: Date,
+    default: null
+  },
+
   /** Stored invoice file metadata (S3) */
   invoiceDocument: {
     fileName: String,

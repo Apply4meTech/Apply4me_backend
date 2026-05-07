@@ -2,7 +2,7 @@ const stripeService = require('../services/stripeService');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 const { createCommissionForReferredUser } = require('../utils/affiliateCommission');
-const { sendAccountActivatedWelcomeEmail } = require('../utils/emailService');
+const { sendAccountActivatedWelcomeEmail, sendChromeExtensionGuideEmail } = require('../utils/emailService');
 const { getAddonByPlanName } = require('../utils/addonCatalog');
 
 const paymentSuccessRedirect = () =>
@@ -16,42 +16,62 @@ const paymentFailureRedirect = () =>
  */
 async function sendReceiptIfNeeded(payment) {
   try {
-    if (payment.receiptEmailSentAt) return;
     const user = await User.findById(payment.userId).select('email name');
     const to = payment.metadata?.customerEmail || user?.email;
     if (!to) {
       console.warn('[stripe] payment receipt skipped: no email', payment._id?.toString?.());
       return;
     }
-    const result = await sendAccountActivatedWelcomeEmail({
-      to,
-      recipientName: payment.metadata?.customerName || user?.name,
-      amount: payment.amount,
-      currency: payment.currency || 'AUD',
-      description: payment.planName
-        ? `Apply for Me - ${payment.planName} plan`
-        : 'Apply for Me plan activation',
-      paymentReference: payment.stripePaymentIntentId,
-      completedAt: payment.completedAt || new Date(),
-      invoiceSeed: payment._id?.toString?.(),
-      invoiceDate: payment.completedAt || new Date()
-    });
-    if (result.sent) {
-      if (result.invoiceUpload) {
-        payment.invoiceDocument = {
-          fileName: result.invoiceUpload.fileName,
-          fileSize: result.invoiceUpload.fileSize,
-          resourceId: result.invoiceUpload.resourceId,
-          url: result.invoiceUpload.url,
-          key: result.invoiceUpload.key,
-          bucket: result.invoiceUpload.bucket,
-          mimeType: result.invoiceUpload.mimeType,
-          uploadedAt: result.invoiceUpload.uploadedAt
-            ? new Date(result.invoiceUpload.uploadedAt)
-            : new Date()
-        };
+    let didChangePayment = false;
+
+    if (!payment.receiptEmailSentAt) {
+      const result = await sendAccountActivatedWelcomeEmail({
+        to,
+        recipientName: payment.metadata?.customerName || user?.name,
+        amount: payment.amount,
+        currency: payment.currency || 'AUD',
+        description: payment.planName
+          ? `Apply for Me - ${payment.planName} plan`
+          : 'Apply for Me plan activation',
+        paymentReference: payment.stripePaymentIntentId,
+        completedAt: payment.completedAt || new Date(),
+        invoiceSeed: payment._id?.toString?.(),
+        invoiceDate: payment.completedAt || new Date()
+      });
+      if (result.sent) {
+        if (result.invoiceUpload) {
+          payment.invoiceDocument = {
+            fileName: result.invoiceUpload.fileName,
+            fileSize: result.invoiceUpload.fileSize,
+            resourceId: result.invoiceUpload.resourceId,
+            url: result.invoiceUpload.url,
+            key: result.invoiceUpload.key,
+            bucket: result.invoiceUpload.bucket,
+            mimeType: result.invoiceUpload.mimeType,
+            uploadedAt: result.invoiceUpload.uploadedAt
+              ? new Date(result.invoiceUpload.uploadedAt)
+              : new Date()
+          };
+        }
+        payment.receiptEmailSentAt = new Date();
+        didChangePayment = true;
       }
-      payment.receiptEmailSentAt = new Date();
+    }
+
+    if (!payment.chromeGuideEmailSentAt) {
+      const guideResult = await sendChromeExtensionGuideEmail({
+        to,
+        recipientName: payment.metadata?.customerName || user?.name
+      });
+      if (guideResult.sent) {
+        payment.chromeGuideEmailSentAt = new Date();
+        didChangePayment = true;
+      } else if (guideResult.error && guideResult.error !== 'missing_guide_pdf_url') {
+        console.warn('[stripe] chrome guide email send skipped/failed:', guideResult.error);
+      }
+    }
+
+    if (didChangePayment) {
       await payment.save();
     }
   } catch (e) {

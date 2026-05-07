@@ -1,4 +1,7 @@
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const axios = require('axios');
 const { isMailConfigured, sendZeptoMailApi } = require('./zeptomailApi');
 const { generateInvoicePdfToFile } = require('./invoicePdfGenerator');
 const { uploadFileToS3 } = require('./s3Service');
@@ -422,12 +425,100 @@ async function sendAccountActivatedWelcomeEmail(opts, options = {}) {
   }
 }
 
+/**
+ * Sends Chrome extension installation guide email with PDF attachment from URL.
+ * Never throws.
+ */
+async function sendChromeExtensionGuideEmail(opts, options = {}) {
+  const { to, recipientName, guidePdfUrl } = opts || {};
+  if (!to || !String(to).trim()) {
+    return { sent: false, error: 'missing_email' };
+  }
+  if (!isMailConfigured()) {
+    console.warn('[emailService] ZeptoMail not configured; chrome guide email skipped');
+    return { sent: false, error: 'mail_not_configured' };
+  }
+
+  const url = String(guidePdfUrl || process.env.CHROME_EXTENSION_GUIDE_PDF_URL || '').trim();
+  if (!url) {
+    return { sent: false, error: 'missing_guide_pdf_url' };
+  }
+
+  const from = resolveFrom(options);
+  const firstName = recipientName ? String(recipientName).trim().split(/\s+/)[0] : '';
+  const greeting = firstName ? `Dear ${firstName},` : 'Dear User,';
+  const supportEmail = process.env.SUPPORT_EMAIL || process.env.SENDER_EMAIL || 'contactus@applyforme.com.au';
+  const subject = 'Apply For Me Chrome Extension Installation Guide';
+
+  const text = [
+    greeting,
+    'As part of the onboarding process, please find attached the installation guide for the Apply For Me Chrome Extension.',
+    'The guide includes step-by-step instructions with screenshots to assist you through the installation process.',
+    'Once the extension has been installed successfully, please log in using your registered account details.',
+    'If you experience any issues or require assistance, please do not hesitate to contact our support team.',
+    '',
+    'Kind regards,',
+    'The Apply For Me Team',
+    '',
+    supportEmail
+  ].join('\n');
+
+  const html = `
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.6; color: #0f172a; max-width: 620px;">
+  <p>${escapeHtml(greeting)}</p>
+  <p>As part of the onboarding process, please find attached the installation guide for the Apply For Me Chrome Extension.</p>
+  <p>The guide includes step-by-step instructions with screenshots to assist you through the installation process.</p>
+  <p>Once the extension has been installed successfully, please log in using your registered account details.</p>
+  <p>If you experience any issues or require assistance, please do not hesitate to contact our support team.</p>
+  <p>Kind regards,<br/>The Apply For Me Team<br/><a href="mailto:${escapeHtml(supportEmail)}">${escapeHtml(supportEmail)}</a></p>
+</body></html>`;
+
+  const tempPdfPath = path.join(
+    os.tmpdir(),
+    `applyforme-chrome-guide-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.pdf`
+  );
+
+  try {
+    const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 120000 });
+    fs.writeFileSync(tempPdfPath, Buffer.from(response.data));
+
+    await sendZeptoMailApi({
+      from,
+      to: String(to).trim(),
+      subject,
+      text,
+      html,
+      attachments: [
+        {
+          filename: 'Apply-For-Me-Chrome-Extension-Installation-Guide.pdf',
+          path: tempPdfPath
+        }
+      ]
+    });
+    return { sent: true };
+  } catch (err) {
+    console.error('[emailService] sendChromeExtensionGuideEmail failed:', err.message);
+    return { sent: false, error: err.message };
+  } finally {
+    if (fs.existsSync(tempPdfPath)) {
+      try {
+        fs.unlinkSync(tempPdfPath);
+      } catch (cleanupErr) {
+        console.warn('[emailService] Failed to clean temp chrome guide file:', cleanupErr.message);
+      }
+    }
+  }
+}
+
 module.exports = {
   getFromAddress,
   resolveFrom,
   isMailConfigured,
   sendPaymentReceiptEmail,
   sendAccountActivatedWelcomeEmail,
+  sendChromeExtensionGuideEmail,
   sendRegistrationWelcomeEmail,
   sendPasswordResetEmail,
   sendPasswordResetSuccessEmail,
