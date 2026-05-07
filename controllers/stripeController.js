@@ -2,7 +2,7 @@ const stripeService = require('../services/stripeService');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 const { createCommissionForReferredUser } = require('../utils/affiliateCommission');
-const { sendPaymentReceiptEmail } = require('../utils/emailService');
+const { sendAccountActivatedWelcomeEmail } = require('../utils/emailService');
 const { getAddonByPlanName } = require('../utils/addonCatalog');
 
 const paymentSuccessRedirect = () =>
@@ -11,7 +11,8 @@ const paymentFailureRedirect = () =>
   `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failure`;
 
 /**
- * Send receipt once per payment; updates receiptEmailSentAt on success. Never throws.
+ * Send account activation welcome + invoice once per payment.
+ * Reuses receiptEmailSentAt for idempotency with existing data.
  */
 async function sendReceiptIfNeeded(payment) {
   try {
@@ -22,19 +23,34 @@ async function sendReceiptIfNeeded(payment) {
       console.warn('[stripe] payment receipt skipped: no email', payment._id?.toString?.());
       return;
     }
-    const result = await sendPaymentReceiptEmail({
+    const result = await sendAccountActivatedWelcomeEmail({
       to,
       recipientName: payment.metadata?.customerName || user?.name,
       amount: payment.amount,
       currency: payment.currency || 'AUD',
-      planName: payment.planName,
-      billingPeriod: payment.billingPeriod,
-      paymentIntentId: payment.stripePaymentIntentId,
+      description: payment.planName
+        ? `Apply for Me - ${payment.planName} plan`
+        : 'Apply for Me plan activation',
+      paymentReference: payment.stripePaymentIntentId,
       completedAt: payment.completedAt || new Date(),
-      invoiceId: payment._id?.toString?.(),
-      websiteUrl: process.env.FRONTEND_URL || 'http://localhost:3000'
+      invoiceSeed: payment._id?.toString?.(),
+      invoiceDate: payment.completedAt || new Date()
     });
     if (result.sent) {
+      if (result.invoiceUpload) {
+        payment.invoiceDocument = {
+          fileName: result.invoiceUpload.fileName,
+          fileSize: result.invoiceUpload.fileSize,
+          resourceId: result.invoiceUpload.resourceId,
+          url: result.invoiceUpload.url,
+          key: result.invoiceUpload.key,
+          bucket: result.invoiceUpload.bucket,
+          mimeType: result.invoiceUpload.mimeType,
+          uploadedAt: result.invoiceUpload.uploadedAt
+            ? new Date(result.invoiceUpload.uploadedAt)
+            : new Date()
+        };
+      }
       payment.receiptEmailSentAt = new Date();
       await payment.save();
     }

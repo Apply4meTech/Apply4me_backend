@@ -9,7 +9,8 @@
     "seed:superadmin": "node scripts/seedSuperAdmin.js",
     "seed:plans": "node scripts/seedPlans.js",
     "update:resume-feature": "node scripts/updateResumeFeature.js",
-    "verify:zeptomail": "node scripts/verifyZeptoMailApi.js"
+    "verify:zeptomail": "node scripts/verifyZeptoMailApi.js",
+    "invoice:test": "node scripts/generateTestInvoice.js"
   },
   "keywords": [],
   "author": "",

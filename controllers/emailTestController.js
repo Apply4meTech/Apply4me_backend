@@ -1,5 +1,6 @@
 const {
   sendPaymentReceiptEmail,
+  sendAccountActivatedWelcomeEmail,
   sendRegistrationWelcomeEmail,
   sendPasswordResetEmail,
   sendPasswordResetSuccessEmail,
@@ -7,6 +8,8 @@ const {
   isMailConfigured,
   getFromAddress
 } = require('../utils/emailService');
+const User = require('../models/User');
+const Payment = require('../models/Payment');
 
 /** Same From as production: EMAIL_FROM or SENDER_NAME + SENDER_EMAIL (see .env). */
 const mailFrom = () => getFromAddress();
@@ -75,6 +78,11 @@ const listTestEmailTypes = (req, res) => {
         type: 'job_application',
         description: 'Job application email (no attachments in test)',
         example: { type: 'job_application', to: 'you@example.com' }
+      },
+      {
+        type: 'activation_welcome_invoice_by_user',
+        description: 'Account activation welcome email + invoice PDF using existing user and latest successful payment',
+        example: { type: 'activation_welcome_invoice_by_user', userId: 'USER_ID_HERE' }
       }
     ]
   });
@@ -91,14 +99,93 @@ const sendTestEmail = async (req, res) => {
   if (blocked) return;
 
   const { type, to } = req.body || {};
-  if (!to || !String(to).includes('@')) {
-    return res.status(400).json({ success: false, error: 'Body must include valid `to` email' });
-  }
   if (!type) {
     return res.status(400).json({ success: false, error: 'Body must include `type` (see GET /api/test/emails)' });
   }
+  if (type !== 'activation_welcome_invoice_by_user' && (!to || !String(to).includes('@'))) {
+    return res.status(400).json({ success: false, error: 'Body must include valid `to` email' });
+  }
 
   try {
+    if (type === 'activation_welcome_invoice_by_user') {
+      const { userId, paymentId, to: overrideTo } = req.body || {};
+      if (!userId) {
+        return res.status(400).json({ success: false, error: 'Body must include `userId` for this type' });
+      }
+
+      const user = await User.findById(userId).select('name email');
+      if (!user) {
+        return res.status(404).json({ success: false, error: 'User not found for provided userId' });
+      }
+
+      const paymentQuery = {
+        userId: user._id,
+        status: 'SUCCESS',
+        gateway: 'STRIPE'
+      };
+      if (paymentId) paymentQuery._id = paymentId;
+
+      const payment = await Payment.findOne(paymentQuery).sort({ completedAt: -1, createdAt: -1 });
+      if (!payment) {
+        return res.status(404).json({
+          success: false,
+          error: paymentId
+            ? 'No successful STRIPE payment found for this userId + paymentId'
+            : 'No successful STRIPE payment found for this user'
+        });
+      }
+
+      const destinationEmail = overrideTo || payment.metadata?.customerEmail || user.email;
+      const sendResult = await sendAccountActivatedWelcomeEmail({
+        to: destinationEmail,
+        recipientName: payment.metadata?.customerName || user.name,
+        amount: payment.amount,
+        currency: payment.currency || 'AUD',
+        description: payment.planName
+          ? `Apply for Me - ${payment.planName} plan`
+          : 'Apply for Me plan activation',
+        paymentReference: payment.stripePaymentIntentId || payment.transactionId,
+        invoiceSeed: payment._id?.toString?.(),
+        invoiceDate: payment.completedAt || payment.createdAt || new Date()
+      });
+
+      if (!sendResult.sent) {
+        return res.status(502).json({
+          success: false,
+          error: sendResult.error || 'Failed to send activation welcome invoice email',
+          userId: user._id,
+          paymentId: payment._id
+        });
+      }
+
+      if (sendResult.invoiceUpload) {
+        payment.invoiceDocument = {
+          fileName: sendResult.invoiceUpload.fileName,
+          fileSize: sendResult.invoiceUpload.fileSize,
+          resourceId: sendResult.invoiceUpload.resourceId,
+          url: sendResult.invoiceUpload.url,
+          key: sendResult.invoiceUpload.key,
+          bucket: sendResult.invoiceUpload.bucket,
+          mimeType: sendResult.invoiceUpload.mimeType,
+          uploadedAt: sendResult.invoiceUpload.uploadedAt
+            ? new Date(sendResult.invoiceUpload.uploadedAt)
+            : new Date()
+        };
+      }
+      payment.receiptEmailSentAt = new Date();
+      await payment.save();
+
+      return res.json({
+        success: true,
+        message: 'Activation welcome email + invoice sent',
+        from: mailFrom(),
+        to: destinationEmail,
+        userId: user._id,
+        paymentId: payment._id,
+        invoiceDocument: payment.invoiceDocument || null
+      });
+    }
+
     switch (type) {
       case 'payment_receipt': {
         const result = await sendPaymentReceiptEmail(

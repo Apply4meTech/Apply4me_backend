@@ -1,4 +1,7 @@
+const fs = require('fs');
 const { isMailConfigured, sendZeptoMailApi } = require('./zeptomailApi');
+const { generateInvoicePdfToFile } = require('./invoicePdfGenerator');
+const { uploadFileToS3 } = require('./s3Service');
 
 /** Shared From: EMAIL_FROM, or SENDER_NAME + SENDER_EMAIL */
 function getFromAddress() {
@@ -310,11 +313,121 @@ async function sendRegistrationWelcomeEmail(to, recipientName, options = {}) {
   }
 }
 
+/**
+ * Account activation welcome email with attached tax invoice PDF. Never throws.
+ */
+async function sendAccountActivatedWelcomeEmail(opts, options = {}) {
+  const {
+    to,
+    recipientName,
+    amount,
+    currency,
+    description,
+    paymentReference,
+    invoiceSeed,
+    invoiceDate,
+    customerAddress
+  } = opts || {};
+
+  if (!to || !String(to).trim()) {
+    return { sent: false, error: 'missing_email' };
+  }
+  if (!isMailConfigured()) {
+    console.warn('[emailService] ZeptoMail not configured; account activation email skipped');
+    return { sent: false, error: 'mail_not_configured' };
+  }
+
+  const siteName = getSiteName();
+  const from = resolveFrom(options);
+  const supportEmail = process.env.SUPPORT_EMAIL || process.env.SENDER_EMAIL || 'contactus@applyforme.com.au';
+  const firstName = recipientName ? String(recipientName).trim().split(/\s+/)[0] : '';
+  const greeting = firstName ? `Hi ${firstName},` : 'Hi,';
+  const subject = `${siteName} - Account activated and invoice attached`;
+
+  const text = [
+    greeting,
+    '',
+    'Thank you for registering with Apply for Me.',
+    'Your account has now been activated successfully.',
+    'We’re excited to have you on board and will be in touch shortly with the next steps and further information to help you get started.',
+    `If you have any questions in the meantime, please feel free to contact us on ${supportEmail}.`,
+    'Kind regards,',
+    'The Apply For Me Team',
+    supportEmail
+  ].join('\n');
+
+  const html = `
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.6; color: #0f172a; max-width: 620px;">
+  <p>${escapeHtml(greeting)}</p>
+  <p>Thank you for registering with Apply for Me.</p>
+  <p>Your account has now been activated successfully.</p>
+  <p>We’re excited to have you on board and will be in touch shortly with the next steps and further information to help you get started.</p>
+  <p>If you have any questions in the meantime, please feel free to contact us on <a href="mailto:${escapeHtml(supportEmail)}">${escapeHtml(supportEmail)}</a>.</p>
+  <p>Kind regards,<br/>The Apply For Me Team<br/><a href="mailto:${escapeHtml(supportEmail)}">${escapeHtml(supportEmail)}</a></p>
+</body></html>`;
+
+  let tempInvoicePath = null;
+  try {
+    const invoiceResult = await generateInvoicePdfToFile({
+      amount: Number(amount) || 0,
+      currency: currency || 'AUD',
+      description: description || 'Apply for Me plan activation',
+      quantity: 1,
+      gst: 0,
+      totalPaid: Number(amount) || 0,
+      paymentMethod: 'Card',
+      paymentReference: paymentReference || '',
+      invoiceSeed: invoiceSeed || paymentReference || Date.now(),
+      invoiceDate: invoiceDate || new Date(),
+      customerName: recipientName || '[Customer Name]',
+      customerAddress: customerAddress || '',
+      customerEmail: String(to).trim()
+    });
+    tempInvoicePath = invoiceResult.outputPath;
+    const invoiceBuffer = fs.readFileSync(tempInvoicePath);
+    const uploadResult = await uploadFileToS3(
+      invoiceBuffer,
+      `ApplyForMe-Tax-Invoice-${invoiceResult.invoiceNumber}.pdf`,
+      'application/pdf',
+      'invoices'
+    );
+
+    await sendZeptoMailApi({
+      from,
+      to: String(to).trim(),
+      subject,
+      text,
+      html,
+      attachments: [
+        {
+          filename: `ApplyForMe-Tax-Invoice-${invoiceResult.invoiceNumber}.pdf`,
+          path: tempInvoicePath
+        }
+      ]
+    });
+    return { sent: true, invoiceUpload: uploadResult };
+  } catch (err) {
+    console.error('[emailService] sendAccountActivatedWelcomeEmail failed:', err.message);
+    return { sent: false, error: err.message };
+  } finally {
+    if (tempInvoicePath && fs.existsSync(tempInvoicePath)) {
+      try {
+        fs.unlinkSync(tempInvoicePath);
+      } catch (cleanupErr) {
+        console.warn('[emailService] Failed to clean temp invoice file:', cleanupErr.message);
+      }
+    }
+  }
+}
+
 module.exports = {
   getFromAddress,
   resolveFrom,
   isMailConfigured,
   sendPaymentReceiptEmail,
+  sendAccountActivatedWelcomeEmail,
   sendRegistrationWelcomeEmail,
   sendPasswordResetEmail,
   sendPasswordResetSuccessEmail,

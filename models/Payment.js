@@ -103,6 +103,18 @@ const paymentSchema = new mongoose.Schema({
   receiptEmailSentAt: {
     type: Date,
     default: null
+  },
+
+  /** Stored invoice file metadata (S3) */
+  invoiceDocument: {
+    fileName: String,
+    fileSize: Number,
+    resourceId: String,
+    url: String,
+    key: String,
+    bucket: String,
+    mimeType: String,
+    uploadedAt: Date
   }
 }, {
   timestamps: true
