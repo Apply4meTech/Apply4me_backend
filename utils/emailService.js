@@ -257,6 +257,114 @@ async function sendJobApplicationEmail(toEmail, subject, body, attachments = [],
   });
 }
 
+/** Internal team notified when a new customer registers (role: user). */
+const DEFAULT_NEW_CUSTOMER_NOTIFY_EMAILS = [
+  'sneha.naidu95@gmail.com',
+  'aryan.singla@applyforme.com.au',
+  'ojus.madan@applyforme.com.au',
+  'ayushsingla21.dev@gmail.com',
+];
+
+function getNewCustomerNotifyRecipients() {
+  const raw = process.env.NEW_CUSTOMER_NOTIFY_EMAILS;
+  if (raw != null && String(raw).trim()) {
+    return String(raw)
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e && e.includes('@'));
+  }
+  return [...DEFAULT_NEW_CUSTOMER_NOTIFY_EMAILS];
+}
+
+/**
+ * Notify internal team that a new customer signed up. Never throws; does not block signup.
+ * @param {{ name: string, email: string, userId?: string, createdAt?: Date, referralCode?: string|null }} customer
+ */
+async function sendNewCustomerJoinNotification(customer, options = {}) {
+  const recipients = getNewCustomerNotifyRecipients();
+  if (!recipients.length) {
+    return { sent: 0, skipped: true, reason: 'no_recipients' };
+  }
+  if (!customer?.email) {
+    return { sent: 0, skipped: true, reason: 'missing_customer_email' };
+  }
+  if (!isMailConfigured()) {
+    console.warn('[emailService] ZeptoMail not configured; new customer join notify skipped');
+    return { sent: 0, error: 'mail_not_configured' };
+  }
+
+  const siteName = getSiteName();
+  const from = resolveFrom(options);
+  const adminUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+  const customerName = customer.name || customer.email;
+  const customerEmail = String(customer.email).trim().toLowerCase();
+  const when = customer.createdAt
+    ? new Date(customer.createdAt).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' })
+    : new Date().toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' });
+  const referralLine = customer.referralCode
+    ? `Referral code used: ${customer.referralCode}`
+    : 'Referral code: none';
+
+  const subject = `${siteName} — New customer joined (${customerName})`;
+  const text = [
+    'A new customer has registered on Apply For Me.',
+    '',
+    `Name: ${customerName}`,
+    `Email: ${customerEmail}`,
+    customer.userId ? `User ID: ${customer.userId}` : '',
+    `Registered at: ${when}`,
+    referralLine,
+    adminUrl ? `Admin: ${adminUrl}/employee/admin/customers` : '',
+    '',
+    `— ${siteName}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const html = `
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.5; color: #0f172a; max-width: 560px;">
+  <p>A new customer has registered on <strong>${escapeHtml(siteName)}</strong>.</p>
+  <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 20px; margin: 16px 0; background: #f8fafc;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.9375rem;">
+      <tr><td style="padding: 4px 0; color: #64748b;">Name</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${escapeHtml(customerName)}</td></tr>
+      <tr><td style="padding: 4px 0; color: #64748b;">Email</td><td style="padding: 4px 0; text-align: right; word-break: break-all;">${escapeHtml(customerEmail)}</td></tr>
+      ${customer.userId ? `<tr><td style="padding: 4px 0; color: #64748b;">User ID</td><td style="padding: 4px 0; text-align: right; font-size: 0.8125rem;">${escapeHtml(customer.userId)}</td></tr>` : ''}
+      <tr><td style="padding: 4px 0; color: #64748b;">Registered</td><td style="padding: 4px 0; text-align: right;">${escapeHtml(when)}</td></tr>
+      <tr><td style="padding: 4px 0; color: #64748b;">Referral</td><td style="padding: 4px 0; text-align: right;">${escapeHtml(customer.referralCode || 'none')}</td></tr>
+    </table>
+  </div>
+  ${adminUrl ? `<p><a href="${escapeHtml(`${adminUrl}/employee/admin/customers`)}" style="color: #2563eb;">View customers in admin</a></p>` : ''}
+  <p style="margin-top: 24px; font-size: 0.875rem; color: #94a3b8;">— ${escapeHtml(siteName)}</p>
+</body></html>`;
+
+  const results = await Promise.allSettled(
+    recipients.map((recipient) =>
+      sendZeptoMailApi({
+        from,
+        to: recipient,
+        subject,
+        text,
+        html,
+      })
+    )
+  );
+
+  const sent = results.filter((r) => r.status === 'fulfilled').length;
+  results.forEach((r, idx) => {
+    if (r.status === 'rejected') {
+      console.error(
+        '[emailService] sendNewCustomerJoinNotification failed for',
+        recipients[idx] || 'unknown',
+        r.reason?.message || r.reason
+      );
+    }
+  });
+  const failed = results.length - sent;
+  return { sent, total: recipients.length, failed };
+}
+
 /**
  * Registration confirmation (after sign-up, before payment). Never throws.
  */
@@ -516,11 +624,13 @@ module.exports = {
   getFromAddress,
   resolveFrom,
   isMailConfigured,
+  getNewCustomerNotifyRecipients,
   sendPaymentReceiptEmail,
   sendAccountActivatedWelcomeEmail,
   sendChromeExtensionGuideEmail,
   sendRegistrationWelcomeEmail,
+  sendNewCustomerJoinNotification,
   sendPasswordResetEmail,
   sendPasswordResetSuccessEmail,
-  sendJobApplicationEmail
+  sendJobApplicationEmail,
 };

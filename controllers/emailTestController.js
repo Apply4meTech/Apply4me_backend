@@ -2,6 +2,8 @@ const {
   sendPaymentReceiptEmail,
   sendAccountActivatedWelcomeEmail,
   sendRegistrationWelcomeEmail,
+  sendNewCustomerJoinNotification,
+  getNewCustomerNotifyRecipients,
   sendPasswordResetEmail,
   sendPasswordResetSuccessEmail,
   sendJobApplicationEmail,
@@ -65,6 +67,11 @@ const listTestEmailTypes = (req, res) => {
         example: { type: 'registration_welcome', to: 'you@example.com' }
       },
       {
+        type: 'new_customer_join_notify',
+        description: 'Internal alert to NEW_CUSTOMER_NOTIFY_EMAILS (sample customer)',
+        example: { type: 'new_customer_join_notify' }
+      },
+      {
         type: 'password_reset',
         description: 'Forgot-password link email',
         example: { type: 'password_reset', to: 'you@example.com' }
@@ -102,7 +109,11 @@ const sendTestEmail = async (req, res) => {
   if (!type) {
     return res.status(400).json({ success: false, error: 'Body must include `type` (see GET /api/test/emails)' });
   }
-  if (type !== 'activation_welcome_invoice_by_user' && (!to || !String(to).includes('@'))) {
+  if (
+    type !== 'activation_welcome_invoice_by_user' &&
+    type !== 'new_customer_join_notify' &&
+    (!to || !String(to).includes('@'))
+  ) {
     return res.status(400).json({ success: false, error: 'Body must include valid `to` email' });
   }
 
@@ -223,6 +234,31 @@ const sendTestEmail = async (req, res) => {
           return res.status(502).json({ success: false, error: result.error || 'send failed', from: mailFrom() });
         }
         break;
+      }
+      case 'new_customer_join_notify': {
+        const result = await sendNewCustomerJoinNotification({
+          name: 'Test Customer',
+          email: 'test.customer@example.com',
+          userId: '000000000000000000000000',
+          createdAt: new Date(),
+          referralCode: null,
+        });
+        if (!result.sent) {
+          return res.status(502).json({
+            success: false,
+            error: result.error || 'send failed',
+            from: mailFrom(),
+            recipients: getNewCustomerNotifyRecipients(),
+          });
+        }
+        return res.json({
+          success: true,
+          message: 'New customer join notifications sent',
+          from: mailFrom(),
+          recipients: getNewCustomerNotifyRecipients(),
+          sent: result.sent,
+          total: result.total,
+        });
       }
       case 'job_application': {
         await sendJobApplicationEmail(

@@ -4,7 +4,12 @@ const Newsletter = require('../models/Newsletter');
 const Affiliate = require('../models/Affiliate');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { sendPasswordResetEmail, sendPasswordResetSuccessEmail, sendRegistrationWelcomeEmail } = require('../utils/emailService');
+const {
+  sendPasswordResetEmail,
+  sendPasswordResetSuccessEmail,
+  sendRegistrationWelcomeEmail,
+  sendNewCustomerJoinNotification,
+} = require('../utils/emailService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
@@ -74,6 +79,14 @@ const signup = async (req, res) => {
     sendRegistrationWelcomeEmail(user.email, user.name).catch((err) =>
       console.warn('[signup] registration email:', err.message)
     );
+
+    sendNewCustomerJoinNotification({
+      name: user.name,
+      email: user.email,
+      userId: user._id.toString(),
+      createdAt: user.createdAt,
+      referralCode: referredBy && referralCode?.trim() ? referralCode.trim().toUpperCase() : null,
+    }).catch((err) => console.warn('[signup] new customer notify:', err.message));
 
     res.status(201).json({
       success: true,
