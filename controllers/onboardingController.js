@@ -379,6 +379,7 @@ const getOnboarding = async (req, res) => {
         previousRoles: user.previousRoles,
         keyResponsibilities: user.keyResponsibilities,
         keyAchievements: user.keyAchievements,
+        employmentHistory: user.employmentHistory || [],
         portfolioWebsite: user.portfolioWebsite,
         github: user.github,
         linkedinProfile: user.linkedinProfile,

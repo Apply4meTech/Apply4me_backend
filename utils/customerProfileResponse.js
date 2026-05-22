@@ -1,0 +1,164 @@
+const { getSignedUrl } = require('./s3Service');
+
+const getSignedUrlSafe = async (key) => {
+  if (!key) return null;
+  try {
+    return await getSignedUrl(key, 3600);
+  } catch (err) {
+    console.error('Error getting signed URL:', err);
+    return null;
+  }
+};
+
+const signDocument = async (details) => {
+  if (!details) return null;
+  const doc = typeof details.toObject === 'function' ? details.toObject() : { ...details };
+  if (doc.key) {
+    doc.url = (await getSignedUrlSafe(doc.key)) || doc.url;
+  }
+  return doc;
+};
+
+const docForEmployee = async (details) => {
+  const signed = await signDocument(details);
+  if (!signed) return null;
+  return {
+    fileName: signed.fileName,
+    fileSize: signed.fileSize,
+    url: signed.url,
+    mimeType: signed.mimeType,
+    uploadedAt: signed.uploadedAt,
+  };
+};
+
+/**
+ * Full customer profile for employee/super-admin (all onboarding fields + signed document URLs).
+ */
+const buildCustomerProfileResponse = async (user) => {
+  const resume = await docForEmployee(user.resume_details);
+  const coverLetter = await docForEmployee(user.cv_details);
+  const academicTranscripts = await docForEmployee(user.academicTranscripts_details);
+  const certifications = await docForEmployee(user.certifications_details);
+  const atsResume = await docForEmployee(user.atsReport?.optimizedResumeDetails);
+
+  const formatAddress = () => {
+    const parts = [
+      user.houseNumber,
+      user.streetName,
+      user.suburb,
+      user.state,
+      user.postcode,
+    ].filter(Boolean);
+    if (parts.length) return parts.join(', ');
+    return user.address || null;
+  };
+
+  return {
+    id: user._id,
+    name: user.name,
+    fullName: user.fullName,
+    email: user.email,
+    profilePicture: user.profilePicture || null,
+    isOnboardingComplete: user.isOnboardingComplete,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    // Personal details
+    phoneCode: user.phoneCode,
+    phone: user.phone,
+    currentLocation: user.currentLocation,
+    workRightsInAustralia: user.workRightsInAustralia,
+    visaType: user.visaType,
+    address: user.address,
+    formattedAddress: formatAddress(),
+    houseNumber: user.houseNumber,
+    streetName: user.streetName,
+    suburb: user.suburb,
+    state: user.state,
+    postcode: user.postcode,
+    openToRelocate: user.openToRelocate,
+    countryOfWork: user.countryOfWork,
+    visaSponsorshipRequired: user.visaSponsorshipRequired,
+    // Job preferences (legacy + onboarding)
+    primaryJobTitles: user.primaryJobTitles || [],
+    skills: user.skills || [],
+    totalYearsExperience: user.totalYearsExperience,
+    seniorityLevel: user.seniorityLevel,
+    jobTypes: user.jobTypes || [],
+    workLocation: user.workLocation,
+    locationPreference: user.locationPreference,
+    remoteOnly: user.remoteOnly,
+    minAcceptableSalary: user.minAcceptableSalary,
+    preferredSalaryMin: user.preferredSalaryMin,
+    preferredSalaryMax: user.preferredSalaryMax,
+    equityPreference: user.equityPreference,
+    // Employment history
+    currentRole: user.currentRole,
+    previousRoles: user.previousRoles,
+    keyResponsibilities: user.keyResponsibilities,
+    keyAchievements: user.keyAchievements,
+    employmentHistory: user.employmentHistory || [],
+    // Compliance
+    policeCheck: user.policeCheck,
+    workingWithChildrenCheck: user.workingWithChildrenCheck,
+    securityClearance: user.securityClearance,
+    driversLicence: user.driversLicence,
+    // Availability
+    availableStartDate: user.availableStartDate,
+    noticePeriod: user.noticePeriod,
+    // Application preferences
+    howToApply: user.howToApply,
+    companiesToAvoid: user.companiesToAvoid,
+    // Additional
+    anythingElse: user.anythingElse,
+    portfolioWebsite: user.portfolioWebsite,
+    github: user.github,
+    linkedinProfile: user.linkedinProfile,
+    personalBlog: user.personalBlog,
+    // Consent
+    consentInfoAccurate: user.consentInfoAccurate,
+    consentSubmitApplications: user.consentSubmitApplications,
+    consentAccountCreation: user.consentAccountCreation,
+    consentTermsAndPrivacy: user.consentTermsAndPrivacy,
+    // Documents
+    resume,
+    coverLetter,
+    academicTranscripts,
+    certifications,
+    atsResume,
+    resume_details: resume,
+    cv_details: coverLetter,
+    academicTranscripts_details: academicTranscripts,
+    certifications_details: certifications,
+    // Subscription & addons
+    subscription: user.subscription || null,
+    purchasedAddons: user.purchasedAddons || [],
+    atsReport: user.atsReport
+      ? {
+          score: user.atsReport.score,
+          analyzedAt: user.atsReport.analyzedAt,
+          summary: user.atsReport.summary,
+          optimizationScore: user.atsReport.optimizationScore,
+          optimizedAt: user.atsReport.optimizedAt,
+        }
+      : null,
+  };
+};
+
+const buildCustomerListItem = (user) => ({
+  id: user._id,
+  name: user.name,
+  fullName: user.fullName,
+  email: user.email,
+  phone: user.phone,
+  phoneCode: user.phoneCode,
+  isOnboardingComplete: user.isOnboardingComplete,
+  subscription: user.subscription
+    ? { planName: user.subscription.planName, status: user.subscription.status }
+    : null,
+  createdAt: user.createdAt,
+});
+
+module.exports = {
+  buildCustomerProfileResponse,
+  buildCustomerListItem,
+};

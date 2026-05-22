@@ -22,7 +22,7 @@ const {
   uploadEmployeeProfilePicture,
   deleteEmployeeProfilePicture
 } = require('../controllers/employeeProfileController');
-const { getCustomerProfile } = require('../controllers/employeeCustomerController');
+const { getCustomerProfile, listCustomers } = require('../controllers/employeeCustomerController');
 const { listAffiliates, markCommissionsPaid } = require('../controllers/employeeAffiliateController');
 const { requireSuperAdmin } = require('../middleware/employeeAuth');
 
@@ -145,7 +145,8 @@ router.use(verifyEmployeeToken);
 // Dashboard route
 router.get('/dashboard', getEmployeeDashboardData);
 
-// Customer profile (read-only for employees)
+// Customers (super admin list; profile read-only for employees with access)
+router.get('/customers', requireSuperAdmin, listCustomers);
 router.get('/customers/:userId', getCustomerProfile);
 
 // Affiliates (super admin only)

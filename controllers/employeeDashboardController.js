@@ -58,21 +58,42 @@ const getEmployeeDashboardData = async (req, res) => {
 
     // Customers: super admin = all registered customers (User role user); employee = distinct users on assigned jobs
     let customerCount = 0;
+    let customerList = [];
     if (isSuperAdmin) {
-      customerCount = await User.countDocuments({ role: 'user' });
+      const users = await User.find({ role: 'user' })
+        .select('name fullName email')
+        .sort({ fullName: 1, name: 1, email: 1 })
+        .lean();
+      customerCount = users.length;
+      customerList = users.map((u) => ({
+        id: u._id,
+        name: u.fullName || u.name || '—',
+        email: u.email,
+      }));
     } else {
       const assigneeOid = new mongoose.Types.ObjectId(String(employeeId));
-      const distinctCustomers = await Job.aggregate([
+      const distinctCustomerIds = await Job.aggregate([
         {
           $match: {
             assignedTo: assigneeOid,
-            userId: { $exists: true, $ne: null }
-          }
+            userId: { $exists: true, $ne: null },
+          },
         },
         { $group: { _id: '$userId' } },
-        { $count: 'count' }
       ]);
-      customerCount = distinctCustomers[0]?.count ?? 0;
+      const userIds = distinctCustomerIds.map((d) => d._id).filter(Boolean);
+      customerCount = userIds.length;
+      if (userIds.length > 0) {
+        const users = await User.find({ _id: { $in: userIds } })
+          .select('name fullName email')
+          .sort({ fullName: 1, name: 1, email: 1 })
+          .lean();
+        customerList = users.map((u) => ({
+          id: u._id,
+          name: u.fullName || u.name || '—',
+          email: u.email,
+        }));
+      }
     }
 
     const pageNum = Math.max(1, parseInt(page) || 1);
@@ -199,6 +220,7 @@ const getEmployeeDashboardData = async (req, res) => {
         totalPending,
         totalInProgress,
         customerCount,
+        customerList,
         jobs: formattedJobs,
         pagination: {
           page: pageNum,
