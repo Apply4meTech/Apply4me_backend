@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const { uploadFileToS3, deleteFileFromS3 } = require('../utils/s3Service');
+const { validateOnboardingRequired } = require('../utils/onboardingValidation');
 
 // Save or update onboarding data
 const saveOnboarding = async (req, res) => {
@@ -100,6 +101,27 @@ const saveOnboarding = async (req, res) => {
       });
     }
 
+    const requiredErrors = validateOnboardingRequired(
+      {
+        address,
+        houseNumber,
+        streetName,
+        suburb,
+        state,
+        postcode,
+        primaryJobTitles: parsedPrimaryJobTitles,
+        skills: parsedSkills,
+        minAcceptableSalary,
+      },
+      user
+    );
+    if (requiredErrors.length) {
+      return res.status(400).json({
+        success: false,
+        error: requiredErrors.join('. '),
+      });
+    }
+
     // Build update object
     const updateData = {
       isOnboardingComplete: true,
@@ -134,11 +156,11 @@ const saveOnboarding = async (req, res) => {
       updateData.visaSponsorshipRequired = visaSponsorshipRequired === 'true' || visaSponsorshipRequired === true;
     }
 
-    // Step 2 fields
-    if (parsedPrimaryJobTitles && parsedPrimaryJobTitles.length > 0) {
+    // Step 2 fields (required on submit)
+    if (primaryJobTitles !== undefined) {
       updateData.primaryJobTitles = parsedPrimaryJobTitles;
     }
-    if (parsedSkills && parsedSkills.length > 0) {
+    if (skills !== undefined) {
       updateData.skills = parsedSkills;
     }
     if (totalYearsExperience !== undefined && totalYearsExperience !== '') {

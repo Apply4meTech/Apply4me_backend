@@ -195,9 +195,16 @@ const buildCustomerListItem = (user, extras = {}) => ({
     ? { planName: user.subscription.planName, status: user.subscription.status }
     : null,
   createdAt: user.createdAt,
-  applicationsCount: extras.applicationsCount ?? 0,
+  applicationsCount: extras.applicationsCount ?? extras.jobsGivenByCustomer ?? 0,
+  jobsGivenByCustomer: extras.jobsGivenByCustomer ?? 0,
+  jobsApplied: extras.jobsApplied ?? 0,
+  jobsPending: extras.jobsPending ?? 0,
+  jobTokenBalance: extras.jobTokenBalance ?? null,
   planQuota: extras.planQuota ?? null,
   paymentCompletedAt: extras.paymentCompletedAt ?? null,
+  hasPurchased: extras.hasPurchased ?? false,
+  journeyStatus: extras.journeyStatus ?? null,
+  journeyLabel: extras.journeyLabel ?? null,
 });
 
 module.exports = {

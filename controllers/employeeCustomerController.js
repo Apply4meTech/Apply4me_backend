@@ -6,23 +6,25 @@ const {
   buildCustomerListItem,
 } = require('../utils/customerProfileResponse');
 const { getPlanQuotaForUserIds } = require('../utils/planQuota');
+const {
+  getCustomerJobStatsForUserIds,
+  hasSuccessfulPurchase,
+  getJourneyStatus,
+  getJourneyLabel,
+} = require('../utils/customerJobStats');
 
 const attachCustomerListExtras = async (users) => {
   if (!users.length) return [];
   const userIds = users.map((u) => u._id);
 
-  const [appCounts, payments] = await Promise.all([
-    Job.aggregate([
-      { $match: { userId: { $in: userIds } } },
-      { $group: { _id: '$userId', count: { $sum: 1 } } },
-    ]),
+  const [jobStatsByUser, payments] = await Promise.all([
+    getCustomerJobStatsForUserIds(userIds),
     Payment.find({ userId: { $in: userIds }, status: 'SUCCESS' })
       .sort({ completedAt: -1 })
       .select('userId completedAt')
       .lean(),
   ]);
 
-  const countByUser = Object.fromEntries(appCounts.map((r) => [String(r._id), r.count]));
   const paymentByUser = {};
   payments.forEach((p) => {
     const key = String(p.userId);
@@ -31,22 +33,38 @@ const attachCustomerListExtras = async (users) => {
 
   const planQuotaByUser = await getPlanQuotaForUserIds(userIds);
 
-  return users.map((u) =>
-    buildCustomerListItem(u, {
-      applicationsCount: countByUser[String(u._id)] || 0,
-      planQuota: planQuotaByUser[String(u._id)] || null,
-      paymentCompletedAt: paymentByUser[String(u._id)] || null,
-    })
-  );
+  return users.map((u) => {
+    const key = String(u._id);
+    const paymentCompletedAt = paymentByUser[key] || null;
+    const planQuota = planQuotaByUser[key] || null;
+    const stats = jobStatsByUser[key] || {
+      jobsGivenByCustomer: 0,
+      jobsApplied: 0,
+      jobsPending: 0,
+    };
+    const purchased = hasSuccessfulPurchase(u, paymentCompletedAt);
+    const journeyStatus = getJourneyStatus(u, paymentCompletedAt);
+
+    return buildCustomerListItem(u, {
+      ...stats,
+      applicationsCount: stats.jobsGivenByCustomer,
+      planQuota,
+      paymentCompletedAt,
+      hasPurchased: purchased,
+      journeyStatus,
+      journeyLabel: getJourneyLabel(journeyStatus),
+      jobTokenBalance: planQuota?.remaining ?? null,
+    });
+  });
 };
 
 /**
  * List all customers (super admin only)
- * GET /api/employee/customers?page=&limit=&search=&onboarding=
+ * GET /api/employee/customers?page=&limit=&search=&onboarding=&journey=&purchase=
  */
 const listCustomers = async (req, res) => {
   try {
-    const { search, page = 1, limit = 10, onboarding } = req.query;
+    const { search, page = 1, limit = 10, onboarding, journey, purchase } = req.query;
 
     const query = { role: 'user' };
 
@@ -68,18 +86,38 @@ const listCustomers = async (req, res) => {
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
     const skip = (pageNum - 1) * limitNum;
+    const userSelect =
+      'name fullName email phone phoneCode isOnboardingComplete subscription.planName subscription.status createdAt';
+    const needsPostFilter = !!(journey || purchase);
 
-    const total = await User.countDocuments(query);
-    const users = await User.find(query)
-      .select(
-        'name fullName email phone phoneCode isOnboardingComplete subscription.planName subscription.status createdAt'
-      )
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum)
-      .lean();
+    let customers;
+    let total;
 
-    const customers = await attachCustomerListExtras(users);
+    if (needsPostFilter) {
+      const users = await User.find(query).select(userSelect).sort({ createdAt: -1 }).lean();
+      customers = await attachCustomerListExtras(users);
+
+      if (journey) {
+        customers = customers.filter((c) => c.journeyStatus === journey);
+      }
+      if (purchase === 'paid') {
+        customers = customers.filter((c) => c.hasPurchased);
+      } else if (purchase === 'unpaid') {
+        customers = customers.filter((c) => !c.hasPurchased);
+      }
+
+      total = customers.length;
+      customers = customers.slice(skip, skip + limitNum);
+    } else {
+      total = await User.countDocuments(query);
+      const users = await User.find(query)
+        .select(userSelect)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean();
+      customers = await attachCustomerListExtras(users);
+    }
 
     res.json({
       success: true,
