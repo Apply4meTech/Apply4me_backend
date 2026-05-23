@@ -23,6 +23,7 @@ const {
   deleteEmployeeProfilePicture
 } = require('../controllers/employeeProfileController');
 const { getCustomerProfile, listCustomers } = require('../controllers/employeeCustomerController');
+const { searchExternalJobs } = require('../controllers/jobScraperController');
 const { listAffiliates, markCommissionsPaid } = require('../controllers/employeeAffiliateController');
 const { requireSuperAdmin } = require('../middleware/employeeAuth');
 
@@ -144,6 +145,9 @@ router.use(verifyEmployeeToken);
 
 // Dashboard route
 router.get('/dashboard', getEmployeeDashboardData);
+
+// External job scraper (employees + super admin)
+router.get('/job-scraper/search', searchExternalJobs);
 
 // Customers (super admin list; profile read-only for employees with access)
 router.get('/customers', requireSuperAdmin, listCustomers);

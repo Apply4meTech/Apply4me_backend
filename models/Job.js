@@ -7,6 +7,12 @@ const JobSchema = new mongoose.Schema({
   location: { type: String, default: '' },
   jobUrl: { type: String, required: false }, // Optional for custom jobs
   platform: { type: String, default: 'custom' }, // Default to 'custom' instead of 'linkedin'
+  /** How the job was submitted: chrome extension, extension URL paste, or customer dashboard */
+  submissionSource: {
+    type: String,
+    enum: ['chrome_extension', 'extension_url', 'dashboard_url', 'dashboard_manual'],
+    default: null,
+  },
   status: { 
     type: String, 
     enum: ['pending', 'assigned', 'in_progress', 'applied', 'response', 'rejected', 'completed'],

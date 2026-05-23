@@ -3,6 +3,17 @@ const Job = require('../models/Job');
 const Employee = require('../models/Employee');
 const User = require('../models/User');
 const { getSignedUrl } = require('../utils/s3Service');
+const { getSubmissionSourceLabel } = require('../utils/submissionSource');
+const { getPlanQuotaForUserIds } = require('../utils/planQuota');
+
+const getApplicationCountsByUserIds = async (userIds) => {
+  if (!userIds.length) return {};
+  const counts = await Job.aggregate([
+    { $match: { userId: { $in: userIds } } },
+    { $group: { _id: '$userId', count: { $sum: 1 } } },
+  ]);
+  return Object.fromEntries(counts.map((c) => [String(c._id), c.count]));
+};
 
 /**
  * Get dashboard data for employee/super admin
@@ -22,13 +33,28 @@ const getEmployeeDashboardData = async (req, res) => {
       query.assignedTo = employeeId;
     }
 
-    // Search by company, title, applicant
+    // Search by company, title, or customer name/email
     if (search && search.trim()) {
       const searchRegex = new RegExp(search.trim(), 'i');
-      query.$or = [
+      const matchingUsers = await User.find({
+        role: 'user',
+        $or: [
+          { name: searchRegex },
+          { fullName: searchRegex },
+          { email: searchRegex },
+        ],
+      })
+        .select('_id')
+        .lean();
+      const matchingUserIds = matchingUsers.map((u) => u._id);
+      const orConditions = [
         { company: searchRegex },
-        { title: searchRegex }
+        { title: searchRegex },
       ];
+      if (matchingUserIds.length > 0) {
+        orConditions.push({ userId: { $in: matchingUserIds } });
+      }
+      query.$or = orConditions;
     }
 
     // Filter by status
@@ -65,10 +91,12 @@ const getEmployeeDashboardData = async (req, res) => {
         .sort({ fullName: 1, name: 1, email: 1 })
         .lean();
       customerCount = users.length;
+      const appCounts = await getApplicationCountsByUserIds(users.map((u) => u._id));
       customerList = users.map((u) => ({
         id: u._id,
         name: u.fullName || u.name || '—',
         email: u.email,
+        applicationsCount: appCounts[String(u._id)] || 0,
       }));
     } else {
       const assigneeOid = new mongoose.Types.ObjectId(String(employeeId));
@@ -88,10 +116,15 @@ const getEmployeeDashboardData = async (req, res) => {
           .select('name fullName email')
           .sort({ fullName: 1, name: 1, email: 1 })
           .lean();
+        const empUserIds = users.map((u) => u._id);
+        const appCounts = await getApplicationCountsByUserIds(empUserIds);
+        const planQuotas = await getPlanQuotaForUserIds(empUserIds);
         customerList = users.map((u) => ({
           id: u._id,
           name: u.fullName || u.name || '—',
           email: u.email,
+          applicationsCount: appCounts[String(u._id)] || 0,
+          planQuota: planQuotas[String(u._id)] || null,
         }));
       }
     }
@@ -113,6 +146,17 @@ const getEmployeeDashboardData = async (req, res) => {
       .skip(skip)
       .limit(limitNum)
       .lean();
+
+    const jobUserIds = [
+      ...new Set(
+        jobs
+          .map((j) => (j.userId?._id || j.userId)?.toString())
+          .filter(Boolean)
+      ),
+    ];
+    const jobUserOids = jobUserIds.map((id) => new mongoose.Types.ObjectId(id));
+    const jobUserAppCounts = await getApplicationCountsByUserIds(jobUserOids);
+    const jobUserPlanQuotas = await getPlanQuotaForUserIds(jobUserOids);
 
     const getSignedUrlSafe = async (key) => {
       if (!key) return null;
@@ -181,20 +225,26 @@ const getEmployeeDashboardData = async (req, res) => {
         ? { ...job.coverLetter, url: jobCoverLetterUrl || job.coverLetter.url }
         : userCoverLetter;
 
+      const uid = user?._id ? user._id.toString() : null;
+
       return {
         id: job._id,
-        userId: user?._id ? user._id.toString() : null,
+        userId: uid,
         jobTitle: job.title,
         company: job.company,
         location: job.location,
         userName: user ? (user.fullName || user.name || 'N/A') : (job.userInfo?.name || 'N/A'),
         applicant: user ? (user.fullName || user.name || 'N/A') : (job.userInfo?.name || 'N/A'),
         applicantEmail: user ? user.email : null,
+        userApplicationsCount: uid ? (jobUserAppCounts[uid] || 0) : 0,
+        planQuota: uid ? (jobUserPlanQuotas[uid] || null) : null,
         assignedTo: job.assignedTo ? job.assignedTo.name : null,
         status: job.status,
         link: job.jobUrl,
         date: job.createdAt,
         platform: job.platform || 'Unknown',
+        submissionSource: job.submissionSource || null,
+        submissionSourceLabel: getSubmissionSourceLabel(job.submissionSource),
         emailData: job.emailData || null,
         resume: job.resume ? { ...job.resume, url: jobResumeUrl || job.resume.url } : null,
         coverLetter: effectiveCoverLetter,

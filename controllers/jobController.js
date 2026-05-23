@@ -4,11 +4,12 @@ const Settings = require('../models/Settings');
 const mongoose = require('mongoose');
 const { detectPlatformFromUrl } = require('../utils/platformDetector');
 const { autoAssignJob } = require('../utils/autoAssign');
+const { normalizeSubmissionSource } = require('../utils/submissionSource');
 
 // Create job (from Chrome extension, manual URL submission, or custom job)
 const createJob = async (req, res) => {
   try {
-    const { title, company, location, jobUrl, platform, metadata, userId: bodyUserId } = req.body;
+    const { title, company, location, jobUrl, platform, metadata, userId: bodyUserId, submissionSource: bodySubmissionSource } = req.body;
 
     // Validate required fields - jobUrl is now optional for custom jobs
     // For Indeed platform, company can be empty string
@@ -98,12 +99,23 @@ const createJob = async (req, res) => {
       rawUserInfo: userInfo
     });
 
+    let submissionSource = normalizeSubmissionSource(bodySubmissionSource);
+    if (!submissionSource) {
+      const clientSource = (req.headers['x-client-source'] || '').toLowerCase();
+      if (clientSource === 'chrome-extension') {
+        submissionSource = jobUrl ? 'chrome_extension' : 'extension_url';
+      } else if (req.userId) {
+        submissionSource = jobUrl ? 'dashboard_url' : 'dashboard_manual';
+      }
+    }
+
     const job = await Job.create({
       title,
       company: isIndeed ? '' : (company || ''), // Empty string for Indeed, otherwise use provided company (with fallback)
       location: location || '',
       jobUrl: jobUrl || undefined, // Only include if provided
       platform: finalPlatform,
+      submissionSource: submissionSource || null,
       metadata: metadata || {},
       userId: userId || null,
       userInfo: Object.keys(cleanedUserInfo).length > 0 ? cleanedUserInfo : {}

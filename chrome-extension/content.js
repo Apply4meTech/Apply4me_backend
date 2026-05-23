@@ -844,6 +844,7 @@
       }
       
       jobData.userId = userId;
+      jobData.submissionSource = 'chrome_extension';
 
       // Log what we're saving
       console.log('[Job Manager] Saving job data:', JSON.stringify(jobData, null, 2));
@@ -861,7 +862,8 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'X-Client-Source': 'chrome-extension'
         },
         body: JSON.stringify(jobData)
       });

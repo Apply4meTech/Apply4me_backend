@@ -175,7 +175,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token
+          'Authorization': 'Bearer ' + token,
+          'X-Client-Source': 'chrome-extension'
         },
         body: JSON.stringify({
           title,
@@ -184,7 +185,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           jobUrl: url,
           platform: 'custom',
           metadata: {},
-          userId
+          userId,
+          submissionSource: 'extension_url'
         })
       });
 

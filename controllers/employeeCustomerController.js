@@ -1,9 +1,44 @@
 const User = require('../models/User');
 const Job = require('../models/Job');
+const Payment = require('../models/Payment');
 const {
   buildCustomerProfileResponse,
   buildCustomerListItem,
 } = require('../utils/customerProfileResponse');
+const { getPlanQuotaForUserIds } = require('../utils/planQuota');
+
+const attachCustomerListExtras = async (users) => {
+  if (!users.length) return [];
+  const userIds = users.map((u) => u._id);
+
+  const [appCounts, payments] = await Promise.all([
+    Job.aggregate([
+      { $match: { userId: { $in: userIds } } },
+      { $group: { _id: '$userId', count: { $sum: 1 } } },
+    ]),
+    Payment.find({ userId: { $in: userIds }, status: 'SUCCESS' })
+      .sort({ completedAt: -1 })
+      .select('userId completedAt')
+      .lean(),
+  ]);
+
+  const countByUser = Object.fromEntries(appCounts.map((r) => [String(r._id), r.count]));
+  const paymentByUser = {};
+  payments.forEach((p) => {
+    const key = String(p.userId);
+    if (!paymentByUser[key]) paymentByUser[key] = p.completedAt;
+  });
+
+  const planQuotaByUser = await getPlanQuotaForUserIds(userIds);
+
+  return users.map((u) =>
+    buildCustomerListItem(u, {
+      applicationsCount: countByUser[String(u._id)] || 0,
+      planQuota: planQuotaByUser[String(u._id)] || null,
+      paymentCompletedAt: paymentByUser[String(u._id)] || null,
+    })
+  );
+};
 
 /**
  * List all customers (super admin only)
@@ -44,9 +79,11 @@ const listCustomers = async (req, res) => {
       .limit(limitNum)
       .lean();
 
+    const customers = await attachCustomerListExtras(users);
+
     res.json({
       success: true,
-      customers: users.map(buildCustomerListItem),
+      customers,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -100,9 +137,27 @@ const getCustomerProfile = async (req, res) => {
 
     const profile = await buildCustomerProfileResponse(user);
 
+    const recentJobs = await Job.find({ userId: customerId })
+      .select('title company status createdAt submissionSource platform')
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+
+    const { getSubmissionSourceLabel } = require('../utils/submissionSource');
+
     res.json({
       success: true,
       user: profile,
+      recentApplications: recentJobs.map((j) => ({
+        id: j._id,
+        title: j.title,
+        company: j.company,
+        status: j.status,
+        createdAt: j.createdAt,
+        submissionSource: j.submissionSource,
+        submissionSourceLabel: getSubmissionSourceLabel(j.submissionSource),
+        platform: j.platform,
+      })),
     });
   } catch (error) {
     console.error('Error fetching customer profile:', error);

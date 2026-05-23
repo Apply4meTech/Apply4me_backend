@@ -93,6 +93,10 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  onboardingCompletedAt: {
+    type: Date,
+    default: null
+  },
   // Step 1: Personal Information
   fullName: {
     type: String,

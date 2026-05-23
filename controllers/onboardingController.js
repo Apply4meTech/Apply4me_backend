@@ -103,6 +103,7 @@ const saveOnboarding = async (req, res) => {
     // Build update object
     const updateData = {
       isOnboardingComplete: true,
+      onboardingCompletedAt: new Date(),
       updatedAt: Date.now()
     };
 

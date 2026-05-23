@@ -1,4 +1,9 @@
 const { getSignedUrl } = require('./s3Service');
+const Payment = require('../models/Payment');
+const Job = require('../models/Job');
+const { buildOnboardingJourney } = require('./onboardingJourney');
+const { getSubmissionSourceLabel } = require('./submissionSource');
+const { getPlanQuotaForUser } = require('./planQuota');
 
 const getSignedUrlSafe = async (key) => {
   if (!key) return null;
@@ -34,6 +39,30 @@ const docForEmployee = async (details) => {
 /**
  * Full customer profile for employee/super-admin (all onboarding fields + signed document URLs).
  */
+const getLatestPayment = async (user) => {
+  let payment = null;
+  if (user.subscription?.paymentId) {
+    payment = await Payment.findById(user.subscription.paymentId)
+      .select('completedAt initiatedAt planName status amount currency')
+      .lean();
+  }
+  if (!payment) {
+    payment = await Payment.findOne({ userId: user._id, status: 'SUCCESS' })
+      .sort({ completedAt: -1 })
+      .select('completedAt initiatedAt planName status amount currency')
+      .lean();
+  }
+  if (!payment) return null;
+  return {
+    completedAt: payment.completedAt,
+    initiatedAt: payment.initiatedAt,
+    planName: payment.planName,
+    status: payment.status,
+    amount: payment.amount,
+    currency: payment.currency,
+  };
+};
+
 const buildCustomerProfileResponse = async (user) => {
   const resume = await docForEmployee(user.resume_details);
   const coverLetter = await docForEmployee(user.cv_details);
@@ -53,6 +82,11 @@ const buildCustomerProfileResponse = async (user) => {
     return user.address || null;
   };
 
+  const applicationsCount = await Job.countDocuments({ userId: user._id });
+  const planQuota = await getPlanQuotaForUser(user._id);
+  const payment = await getLatestPayment(user);
+  const onboardingJourney = buildOnboardingJourney(user);
+
   return {
     id: user._id,
     name: user.name,
@@ -60,6 +94,11 @@ const buildCustomerProfileResponse = async (user) => {
     email: user.email,
     profilePicture: user.profilePicture || null,
     isOnboardingComplete: user.isOnboardingComplete,
+    onboardingCompletedAt: user.onboardingCompletedAt || null,
+    applicationsCount,
+    planQuota,
+    onboardingJourney,
+    payment,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     // Personal details
@@ -144,7 +183,7 @@ const buildCustomerProfileResponse = async (user) => {
   };
 };
 
-const buildCustomerListItem = (user) => ({
+const buildCustomerListItem = (user, extras = {}) => ({
   id: user._id,
   name: user.name,
   fullName: user.fullName,
@@ -156,9 +195,13 @@ const buildCustomerListItem = (user) => ({
     ? { planName: user.subscription.planName, status: user.subscription.status }
     : null,
   createdAt: user.createdAt,
+  applicationsCount: extras.applicationsCount ?? 0,
+  planQuota: extras.planQuota ?? null,
+  paymentCompletedAt: extras.paymentCompletedAt ?? null,
 });
 
 module.exports = {
   buildCustomerProfileResponse,
   buildCustomerListItem,
+  getSubmissionSourceLabel,
 };

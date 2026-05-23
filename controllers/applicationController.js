@@ -1,6 +1,7 @@
 const Job = require('../models/Job');
 const User = require('../models/User');
 const { getSignedUrl } = require('../utils/s3Service');
+const { getSubmissionSourceLabel } = require('../utils/submissionSource');
 
 /**
  * Get all applications for user with filters and pagination
@@ -75,7 +76,7 @@ const getApplications = async (req, res) => {
       .sort(sort)
       .skip(skip)
       .limit(limitNum)
-      .select('title company location jobUrl platform status createdAt metadata resume coverLetter screenshotProof userId userInfo')
+      .select('title company location jobUrl platform submissionSource status createdAt metadata resume coverLetter screenshotProof userId userInfo')
       .lean();
 
     // Format applications - only show files uploaded by employee (job-attached), use signed URLs
@@ -109,6 +110,8 @@ const getApplications = async (req, res) => {
         link: app.jobUrl || null,
         status: app.status,
         source: app.platform || 'Unknown',
+        submissionSource: app.submissionSource || null,
+        submissionSourceLabel: getSubmissionSourceLabel(app.submissionSource),
         date: app.createdAt,
         description: app.metadata?.description,
         salary: app.metadata?.salary,
