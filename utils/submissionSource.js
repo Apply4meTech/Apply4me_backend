@@ -3,6 +3,7 @@ const SUBMISSION_SOURCES = [
   'extension_url',
   'dashboard_url',
   'dashboard_manual',
+  'job_finder',
 ];
 
 const LABELS = {
@@ -10,6 +11,7 @@ const LABELS = {
   extension_url: 'Chrome extension (URL pasted)',
   dashboard_url: 'Customer dashboard (URL)',
   dashboard_manual: 'Customer dashboard (manual entry)',
+  job_finder: 'Job Finder (Adzuna)',
 };
 
 const normalizeSubmissionSource = (value) => {

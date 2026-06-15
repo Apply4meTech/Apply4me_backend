@@ -14,7 +14,9 @@ const {
   unassignJobFromEmployee,
   updateJobNotes,
   updateJobMetadata,
-  customizeResume
+  customizeResume,
+  listAssignableCustomers,
+  createAndAssignJobFromSearch,
 } = require('../controllers/jobManagementController');
 const {
   getEmployeeProfile,
@@ -148,6 +150,10 @@ router.get('/dashboard', getEmployeeDashboardData);
 
 // External job scraper (employees + super admin)
 router.get('/job-scraper/search', searchExternalJobs);
+
+// Job Finder — add search result for a customer (user)
+router.get('/assignable-customers', listAssignableCustomers);
+router.post('/jobs/from-search', createAndAssignJobFromSearch);
 
 // Customers (super admin list; profile read-only for employees with access)
 router.get('/customers', requireSuperAdmin, listCustomers);
