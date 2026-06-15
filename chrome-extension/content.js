@@ -85,8 +85,33 @@
     return url.includes('indeed.com');
   }
 
+  function isSeekPage() {
+    const host = window.location.hostname.toLowerCase();
+    return host.includes('seek.com');
+  }
+
+  function isGradConnectionPage() {
+    const host = window.location.hostname.toLowerCase();
+    return host.includes('gradconnection.com');
+  }
+
+  function isAdeccoPage() {
+    const host = window.location.hostname.toLowerCase();
+    return host.includes('adecco.com');
+  }
+
+  function getSearchParamCaseInsensitive(name) {
+    const target = (name || '').toLowerCase();
+    const params = new URLSearchParams(window.location.search);
+    for (const [key, value] of params.entries()) {
+      if (key.toLowerCase() === target) return value;
+    }
+    return null;
+  }
+
   // Hostnames (suffix match) for ApplyForMe-supported job boards — keep in sync with manifest.json matches
   const HOST_PLATFORM_MAP = [
+    ['seek.com', 'seek'],
     ['seek.com.au', 'seek'],
     ['indeed.com', 'indeed'],
     ['jora.com', 'jora'],
@@ -100,6 +125,7 @@
     ['engineeringjobs.com.au', 'engineeringjobs'],
     ['techcareers.com.au', 'techcareers'],
     ['launchgraduate.com.au', 'launchgraduate'],
+    ['gradconnection.com', 'gradconnection'],
     ['gradconnection.com.au', 'gradconnection'],
     ['freelancer.com.au', 'freelancer'],
     ['hays.com.au', 'hays'],
@@ -107,6 +133,7 @@
     ['michaelpage.com.au', 'michaelpage'],
     ['roberthalf.com.au', 'roberthalf'],
     ['randstad.com.au', 'randstad'],
+    ['adecco.com', 'adecco'],
     ['adecco.com.au', 'adecco']
   ];
 
@@ -131,7 +158,216 @@
     const h = window.location.hostname.toLowerCase();
     if (h.includes('linkedin.com')) return false;
     if (h.includes('indeed.com')) return false;
+    if (isSeekPage()) return false;
+    if (isGradConnectionPage()) return false;
+    if (isAdeccoPage()) return false;
     return hostMatchesSupportedBoard(h);
+  }
+
+  function extractSeekJobData() {
+    const data = {
+      title: '',
+      company: '',
+      location: '',
+      jobUrl: window.location.href.split('#')[0],
+      platform: 'seek',
+      metadata: { extractor: 'seek' },
+      timestamp: new Date().toISOString()
+    };
+
+    const jobId = getSearchParamCaseInsensitive('jobId');
+    if (jobId) {
+      const origin = window.location.origin;
+      data.jobUrl = `${origin}/jobs?jobId=${encodeURIComponent(jobId)}`;
+      data.metadata.seekJobId = jobId;
+    } else {
+      const pathMatch = window.location.pathname.match(/\/job\/(\d+)/i);
+      if (pathMatch) {
+        data.metadata.seekJobId = pathMatch[1];
+        data.jobUrl = `${window.location.origin}/jobs?jobId=${encodeURIComponent(pathMatch[1])}`;
+      }
+    }
+
+    const titleSelectors = [
+      'h1[data-automation="job-detail-title"]',
+      '[data-automation="job-detail-title"]',
+      'h1[data-testid="job-detail-title"]',
+      '[data-testid="job-detail-title"]',
+      'h1'
+    ];
+    for (const selector of titleSelectors) {
+      const element = document.querySelector(selector);
+      if (element && element.innerText.trim()) {
+        const text = element.innerText.trim().split('\n')[0];
+        if (text.length > 2 && text.length < 300) {
+          data.title = text;
+          break;
+        }
+      }
+    }
+
+    const companySelectors = [
+      '[data-automation="advertiser-name"]',
+      '[data-automation="job-detail-company-name"]',
+      'a[data-automation="job-detail-company"]',
+      '[data-testid="advertiser-name"]'
+    ];
+    for (const selector of companySelectors) {
+      const element = document.querySelector(selector);
+      if (element && element.innerText.trim()) {
+        data.company = element.innerText.trim();
+        break;
+      }
+    }
+
+    const locationSelectors = [
+      '[data-automation="job-detail-location"]',
+      '[data-automation="jobLocation"]',
+      '[data-testid="job-detail-location"]'
+    ];
+    for (const selector of locationSelectors) {
+      const element = document.querySelector(selector);
+      if (element && element.innerText.trim()) {
+        data.location = element.innerText.trim();
+        break;
+      }
+    }
+
+    if (!data.title) {
+      const generic = extractGenericJobData();
+      if (generic.title) data.title = generic.title;
+      if (!data.company && generic.company) data.company = generic.company;
+    }
+
+    return data;
+  }
+
+  function shouldShowButtonSeek() {
+    const path = window.location.pathname.toLowerCase();
+
+    if (path.match(/^\/job\/\d+/)) {
+      return true;
+    }
+
+    if (path === '/jobs' || path.startsWith('/jobs/')) {
+      const jobId = getSearchParamCaseInsensitive('jobId');
+      return !!jobId;
+    }
+
+    return false;
+  }
+
+  function shouldShowButtonGradConnection() {
+    const path = window.location.pathname.toLowerCase();
+    return /\/employers\/[^/]+\/jobs\/[^/]+\/?$/i.test(path);
+  }
+
+  function shouldShowButtonAdecco() {
+    const path = window.location.pathname.toLowerCase();
+    return /\/job-search\/[^/]+\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/?$/i.test(path);
+  }
+
+  function extractGradConnectionJobData() {
+    const data = {
+      title: '',
+      company: '',
+      location: '',
+      jobUrl: window.location.href.split('#')[0],
+      platform: 'gradconnection',
+      metadata: { extractor: 'gradconnection' },
+      timestamp: new Date().toISOString()
+    };
+
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle && ogTitle.getAttribute('content')) {
+      const raw = ogTitle.getAttribute('content').trim();
+      const withoutSite = raw.replace(/\s*[|\u2013\u2014-]\s*SEEK Grad.*$/i, '').trim();
+      const dashParts = withoutSite.split(/\s+-\s+/);
+      if (dashParts.length >= 2) {
+        data.company = dashParts[0].trim();
+        data.title = dashParts.slice(1).join(' - ').trim();
+      } else if (withoutSite) {
+        data.title = withoutSite;
+      }
+    }
+
+    const employerMatch = window.location.pathname.match(/\/employers\/([^/]+)\/jobs\//i);
+    if (employerMatch && !data.company) {
+      data.company = employerMatch[1]
+        .replace(/-/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+
+    const h1s = document.querySelectorAll('h1');
+    for (const h1 of h1s) {
+      const text = h1.innerText.trim().split('\n')[0];
+      if (text.length <= 3 || text.length >= 300) continue;
+      if (data.company && text.toLowerCase() === data.company.toLowerCase()) continue;
+      data.title = text;
+      break;
+    }
+
+    const bodyText = document.body ? document.body.innerText : '';
+    const locationMatch = bodyText.match(/\*\*Locations:\*\*\s*\n?\s*([^\n]+)/i) ||
+      bodyText.match(/Locations:\s*\n?\s*([^\n]+)/i);
+    if (locationMatch) {
+      data.location = locationMatch[1].trim();
+    }
+
+    if (!data.title) {
+      const generic = extractGenericJobData();
+      if (generic.title) data.title = generic.title;
+      if (!data.company && generic.company) data.company = generic.company;
+    }
+
+    return data;
+  }
+
+  function extractAdeccoJobData() {
+    const data = {
+      title: '',
+      company: 'Adecco',
+      location: '',
+      jobUrl: window.location.href.split('#')[0],
+      platform: 'adecco',
+      metadata: { extractor: 'adecco' },
+      timestamp: new Date().toISOString()
+    };
+
+    const pathMatch = window.location.pathname.match(
+      /\/job-search\/[^/]+\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+    );
+    if (pathMatch) {
+      data.metadata.adeccoJobId = pathMatch[1];
+    }
+
+    const h1 = document.querySelector('h1');
+    if (h1 && h1.innerText.trim()) {
+      data.title = h1.innerText.trim().split('\n')[0];
+    }
+
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle && ogTitle.getAttribute('content')) {
+      const raw = ogTitle.getAttribute('content').trim();
+      const parts = raw.split(/\s*[|\u2013\u2014]\s*/);
+      if (!data.title && parts[0]) data.title = parts[0].trim();
+      if (parts[1]) data.location = parts[1].trim();
+    }
+
+    if (!data.location) {
+      const pageTitle = document.title || '';
+      const titleParts = pageTitle.split(/\s*[|\u2013\u2014]\s*/);
+      if (titleParts.length >= 2) {
+        data.location = titleParts[1].trim();
+      }
+    }
+
+    if (!data.title) {
+      const generic = extractGenericJobData();
+      if (generic.title) data.title = generic.title;
+    }
+
+    return data;
   }
 
   function extractGenericJobData() {
@@ -205,8 +441,14 @@
     const jobLike = /\/(job|jobs|vacancy|vacancies|position|positions|role|roles|opportunity|opportunities|listing|careers)\b/i;
     if (jobLike.test(path)) return true;
 
-    const sp = new URLSearchParams(window.location.search);
-    if (sp.get('jobid') || sp.get('job_id') || sp.get('vacancyid') || sp.get('listing_id')) return true;
+    if (
+      getSearchParamCaseInsensitive('jobId') ||
+      getSearchParamCaseInsensitive('job_id') ||
+      getSearchParamCaseInsensitive('vacancyId') ||
+      getSearchParamCaseInsensitive('listing_id')
+    ) {
+      return true;
+    }
 
     if (segments.length >= 2) {
       const last = segments[segments.length - 1];
@@ -299,6 +541,18 @@
     // Check if we're on Indeed first
     if (isIndeedPage()) {
       return extractIndeedJobData();
+    }
+
+    if (isSeekPage()) {
+      return extractSeekJobData();
+    }
+
+    if (isGradConnectionPage()) {
+      return extractGradConnectionJobData();
+    }
+
+    if (isAdeccoPage()) {
+      return extractAdeccoJobData();
     }
 
     if (shouldUseGenericExtractor()) {
@@ -757,18 +1011,32 @@
     try {
       const jobData = extractJobData();
       const isIndeed = isIndeedPage();
+      const isSeek = isSeekPage();
+      const isGradConnection = isGradConnectionPage();
+      const isAdecco = isAdeccoPage();
       const isGeneric = shouldUseGenericExtractor();
 
       // More lenient validation - allow saving even if some fields are missing
       // If we have a jobId, we can save with minimal data
       const urlParams = new URLSearchParams(window.location.search);
       const currentJobId = urlParams.get('currentJobId');
+      const seekJobId = isSeek ? getSearchParamCaseInsensitive('jobId') : null;
+      const onDedicatedJobPage =
+        !!seekJobId ||
+        (isGradConnection && shouldShowButtonGradConnection()) ||
+        (isAdecco && shouldShowButtonAdecco());
       
-      if (!jobData.title && !jobData.company && !currentJobId) {
+      if (!jobData.title && !jobData.company && !currentJobId && !onDedicatedJobPage) {
         if (isGeneric) {
           // URL + platform are enough; title defaults below
         } else if (isIndeed) {
           throw new Error('Could not extract job details. Please make sure a job is selected on Indeed.');
+        } else if (isSeek) {
+          throw new Error('Could not extract job details. Please make sure a job is selected on Seek.');
+        } else if (isGradConnection) {
+          throw new Error('Could not extract job details. Please make sure you are on a GradConnection job page.');
+        } else if (isAdecco) {
+          throw new Error('Could not extract job details. Please make sure you are on an Adecco job page.');
         } else {
           const isSearchPage = window.location.href.includes('/jobs/search') || 
                                window.location.href.includes('/jobs/collections/recommended');
@@ -793,6 +1061,24 @@
                          document.querySelector('h2');
           if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 3) {
             jobData.title = titleEl.innerText.trim();
+          } else {
+            jobData.title = 'Job title Not found';
+          }
+        } else if (isSeek) {
+          const titleEl = document.querySelector('[data-automation="job-detail-title"]') ||
+                         document.querySelector('[data-testid="job-detail-title"]') ||
+                         document.querySelector('h1');
+          if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 3) {
+            jobData.title = titleEl.innerText.trim().split('\n')[0];
+          } else if (seekJobId) {
+            jobData.title = 'Job title Not found';
+          } else {
+            jobData.title = 'Job title Not found';
+          }
+        } else if (isGradConnection || isAdecco) {
+          const titleEl = document.querySelector('h1');
+          if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 3) {
+            jobData.title = titleEl.innerText.trim().split('\n')[0];
           } else {
             jobData.title = 'Job title Not found';
           }
@@ -979,6 +1265,18 @@
       return false;
     }
 
+    if (isSeekPage()) {
+      return shouldShowButtonSeek();
+    }
+
+    if (isGradConnectionPage()) {
+      return shouldShowButtonGradConnection();
+    }
+
+    if (isAdeccoPage()) {
+      return shouldShowButtonAdecco();
+    }
+
     if (shouldUseGenericExtractor()) {
       return shouldShowButtonGenericJobBoard();
     }
@@ -1081,6 +1379,18 @@
   function isIndeedJobsPage() {
     const url = window.location.href;
     return url.includes('indeed.com');
+  }
+
+  function isSeekJobsPage() {
+    return isSeekPage();
+  }
+
+  function isGradConnectionJobsPage() {
+    return isGradConnectionPage();
+  }
+
+  function isAdeccoJobsPage() {
+    return isAdeccoPage();
   }
 
   // Check if we're on any supported job platform (same host list as manifest)
@@ -1313,6 +1623,9 @@
       console.log('- Button exists:', !!document.getElementById(BUTTON_ID));
       console.log('- Is LinkedIn page:', isLinkedInJobsPage());
       console.log('- Is Indeed page:', isIndeedJobsPage());
+      console.log('- Is Seek page:', isSeekJobsPage());
+      console.log('- Is GradConnection page:', isGradConnectionJobsPage());
+      console.log('- Is Adecco page:', isAdeccoJobsPage());
       console.log('- Generic extractor:', shouldUseGenericExtractor());
       console.log('- Is supported page:', isSupportedJobsPage());
       console.log('- Should show button:', shouldShowButton());
