@@ -1,5 +1,9 @@
 const Job = require('../models/Job');
 const User = require('../models/User');
+const Employee = require('../models/Employee');
+const Settings = require('../models/Settings');
+const mongoose = require('mongoose');
+const { autoAssignJob } = require('../utils/autoAssign');
 const { applyResumeUploadForUserId } = require('./fileUploadController');
 const { uploadFileToS3, deleteFileFromS3, getSignedUrl, getFileBufferFromS3 } = require('../utils/s3Service');
 const { extractResumeText } = require('../utils/resumeExtractor');
@@ -570,6 +574,195 @@ const deleteJob = async (req, res) => {
 };
 
 /**
+ * List customers available for Job Finder assignment (employees + super admin)
+ * GET /api/employee/assignable-customers?search=
+ */
+const listAssignableCustomers = async (req, res) => {
+  try {
+    const { search, limit = 50 } = req.query;
+    const query = { role: 'user' };
+
+    if (search && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), 'i');
+      query.$or = [
+        { name: searchRegex },
+        { fullName: searchRegex },
+        { email: searchRegex },
+      ];
+    }
+
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
+    const users = await User.find(query)
+      .select('name fullName email')
+      .sort({ fullName: 1, name: 1, email: 1 })
+      .limit(limitNum)
+      .lean();
+
+    res.json({
+      success: true,
+      customers: users.map((user) => ({
+        id: user._id,
+        _id: user._id,
+        name: user.fullName || user.name || user.email,
+        email: user.email,
+      })),
+    });
+  } catch (error) {
+    console.error('Error listing assignable customers:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch customers',
+      details: error.message,
+    });
+  }
+};
+
+/**
+ * Create a job from Job Finder search results and assign to a customer (user)
+ * POST /api/employee/jobs/from-search
+ */
+const createAndAssignJobFromSearch = async (req, res) => {
+  try {
+    const {
+      title,
+      company,
+      location,
+      jobUrl,
+      platform,
+      description,
+      salary,
+      category,
+      userId: bodyUserId,
+      externalId,
+    } = req.body;
+
+    if (!title?.trim()) {
+      return res.status(400).json({ success: false, error: 'Job title is required' });
+    }
+
+    if (!bodyUserId) {
+      return res.status(400).json({ success: false, error: 'Customer (user) is required' });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(bodyUserId)) {
+      return res.status(400).json({ success: false, error: 'Invalid customer ID' });
+    }
+
+    const customer = await User.findOne({ _id: bodyUserId, role: 'user' });
+    if (!customer) {
+      return res.status(404).json({ success: false, error: 'Customer not found' });
+    }
+
+    const trimmedUrl = jobUrl?.trim() || '';
+    let job = null;
+    let isExisting = false;
+
+    if (trimmedUrl) {
+      job = await Job.findOne({ jobUrl: trimmedUrl, userId: customer._id });
+      if (job) isExisting = true;
+    }
+
+    if (job) {
+      return res.status(200).json({
+        success: true,
+        message: 'This job is already added for this customer',
+        isExisting: true,
+        job: {
+          id: job._id,
+          jobTitle: job.title,
+          company: job.company,
+          location: job.location,
+          jobUrl: job.jobUrl,
+          status: job.status,
+          submissionSource: job.submissionSource,
+          customer: {
+            id: customer._id,
+            name: customer.fullName || customer.name || customer.email,
+            email: customer.email,
+          },
+        },
+      });
+    }
+
+    job = await Job.create({
+      title: title.trim(),
+      company: (company || '').trim() || '—',
+      location: (location || '').trim(),
+      jobUrl: trimmedUrl || undefined,
+      platform: platform || 'adzuna',
+      submissionSource: 'job_finder',
+      status: 'pending',
+      userId: customer._id,
+      metadata: {
+        description: description || '',
+        salary: salary || '',
+        requirements: category ? [category] : [],
+      },
+    });
+
+    let autoAssigned = false;
+    let assignedEmployee = null;
+
+    try {
+      const settings = await Settings.getSettings();
+      if (settings.autoAssignEnabled) {
+        const assignmentResult = await autoAssignJob(job._id);
+        if (assignmentResult) {
+          autoAssigned = true;
+          assignedEmployee = assignmentResult.employee;
+        }
+      }
+    } catch (autoAssignError) {
+      console.error('Auto-assign after Job Finder create failed:', autoAssignError);
+    }
+
+    job = await Job.findById(job._id)
+      .populate('assignedTo', 'name email')
+      .populate('userId', 'name email fullName')
+      .lean();
+
+    res.status(201).json({
+      success: true,
+      message: autoAssigned
+        ? 'Job added for customer and auto-assigned to an employee'
+        : 'Job added for customer successfully',
+      isExisting: false,
+      autoAssigned,
+      job: {
+        id: job._id,
+        jobTitle: job.title,
+        company: job.company,
+        location: job.location,
+        jobUrl: job.jobUrl,
+        status: job.status,
+        submissionSource: job.submissionSource,
+        customer: job.userId
+          ? {
+              id: job.userId._id,
+              name: job.userId.fullName || job.userId.name || job.userId.email,
+              email: job.userId.email,
+            }
+          : null,
+        assignedTo: job.assignedTo
+          ? {
+              id: job.assignedTo._id,
+              name: job.assignedTo.name,
+              email: job.assignedTo.email,
+            }
+          : null,
+      },
+    });
+  } catch (error) {
+    console.error('Error creating job from search:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add job for customer',
+      details: error.message,
+    });
+  }
+};
+
+/**
  * Assign job to employee (super admin only)
  * PATCH /api/employee/jobs/:jobId/assign
  */
@@ -606,7 +799,6 @@ const assignJobToEmployee = async (req, res) => {
     }
 
     // Verify employee exists
-    const Employee = require('../models/Employee');
     const assignedEmployee = await Employee.findById(employeeId);
     
     if (!assignedEmployee) {
@@ -1014,6 +1206,8 @@ module.exports = {
   uploadCustomerResumeForJob,
   deleteJobFile,
   deleteJob,
+  listAssignableCustomers,
+  createAndAssignJobFromSearch,
   assignJobToEmployee,
   unassignJobFromEmployee,
   updateJobNotes,

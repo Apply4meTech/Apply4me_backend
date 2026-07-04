@@ -10,7 +10,7 @@ const JobSchema = new mongoose.Schema({
   /** How the job was submitted: chrome extension, extension URL paste, or customer dashboard */
   submissionSource: {
     type: String,
-    enum: ['chrome_extension', 'extension_url', 'dashboard_url', 'dashboard_manual'],
+    enum: ['chrome_extension', 'extension_url', 'dashboard_url', 'dashboard_manual', 'job_finder'],
     default: null,
   },
   status: { 

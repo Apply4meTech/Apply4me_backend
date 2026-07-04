@@ -70,7 +70,28 @@ const normalizeJSearchJob = (item) => ({
   source: 'jsearch',
 });
 
-const normalizeAdzunaJob = (item) => ({
+const ADZUNA_CURRENCY = {
+  au: 'AUD',
+  gb: 'GBP',
+  us: 'USD',
+  ca: 'CAD',
+  nz: 'NZD',
+  in: 'INR',
+  sg: 'SGD',
+};
+
+const formatAdzunaSalary = (item, country) => {
+  const currency = ADZUNA_CURRENCY[country] || '';
+  const fmt = (n) => (n != null ? Number(n).toLocaleString('en') : null);
+  const min = fmt(item.salary_min);
+  const max = fmt(item.salary_max);
+  if (min && max) return `${currency} ${min}–${max}`.trim();
+  if (min) return `${currency} ${min}+`.trim();
+  if (max) return `Up to ${currency} ${max}`.trim();
+  return null;
+};
+
+const normalizeAdzunaJob = (item, country) => ({
   id: String(item.id),
   title: item.title || 'Untitled',
   company: item.company?.display_name || '—',
@@ -80,11 +101,9 @@ const normalizeAdzunaJob = (item) => ({
   platform: 'adzuna',
   postedAt: item.created || null,
   employmentType: item.contract_type || null,
+  category: item.category?.label || null,
   isRemote: false,
-  salary:
-    item.salary_min && item.salary_max
-      ? `${item.salary_min}–${item.salary_max}`
-      : null,
+  salary: formatAdzunaSalary(item, country),
   source: 'adzuna',
 });
 
@@ -221,28 +240,29 @@ const searchJSearch = async ({ jobTitle, skills, experience, page, location, cou
   };
 };
 
-const searchAdzuna = async ({ query, page, location }) => {
-  const country = DEFAULT_COUNTRY === 'au' ? 'au' : 'gb';
+const searchAdzuna = async ({ query, page, location, country }) => {
+  const countryCode = (country || DEFAULT_COUNTRY).toLowerCase();
   const params = {
     app_id: ADZUNA_APP_ID,
     app_key: ADZUNA_APP_KEY,
     what: query,
     results_per_page: 10,
-    page,
   };
   if (location?.trim()) params.where = location.trim();
 
   const { data } = await axios.get(
-    `https://api.adzuna.com/v1/api/jobs/${country}/search/${page}`,
+    `https://api.adzuna.com/v1/api/jobs/${countryCode}/search/${page}`,
     { params, timeout: 20000 }
   );
 
-  const jobs = (data.results || []).map(normalizeAdzunaJob);
+  const jobs = (data.results || []).map((item) => normalizeAdzunaJob(item, countryCode));
   return {
     jobs,
     total: data.count || jobs.length,
     page,
+    hasMore: page * 10 < (data.count || 0),
     provider: 'adzuna',
+    apiCountry: countryCode,
     warning: null,
   };
 };
@@ -306,10 +326,24 @@ const searchJobs = async (filters = {}) => {
   if (useAdzuna) {
     try {
       const query = buildSearchQuery({ jobTitle, skills, experience });
-      return await searchAdzuna({ query, page: pageNum, location });
+      return await searchAdzuna({ query, page: pageNum, location, country });
     } catch (err) {
       console.error('Adzuna API error:', err.response?.data || err.message);
-      throw err;
+      if (process.env.JOB_SCRAPER_FALLBACK_MOCK === 'true') {
+        const q = buildSearchQuery({ jobTitle, skills, experience });
+        return {
+          jobs: getMockJobs(q, pageNum),
+          total: 30,
+          page: pageNum,
+          provider: 'mock',
+          warning: 'Adzuna API failed; showing sample data.',
+        };
+      }
+      const apiErr = new Error(
+        err.response?.data?.exception || err.message || 'Adzuna API request failed'
+      );
+      apiErr.statusCode = err.response?.status || 502;
+      throw apiErr;
     }
   }
 
