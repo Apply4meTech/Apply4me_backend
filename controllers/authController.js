@@ -145,7 +145,29 @@ const login = async (req, res) => {
 
     const emailLower = email.toLowerCase();
 
-    // 1. Try User model first
+    // 1. Try Employee model first so staff accounts are not mistaken for customers.
+    const employee = await Employee.findOne({ email: emailLower, isActive: true });
+    if (employee) {
+      const isPasswordValid = await employee.comparePassword(password);
+      if (isPasswordValid) {
+        const token = generateEmployeeToken(employee._id);
+        return res.json({
+          success: true,
+          message: 'Login successful',
+          token,
+          user: {
+            id: employee._id,
+            name: employee.name,
+            email: employee.email,
+            role: employee.role,
+            isEmployee: true,
+            createdAt: employee.createdAt
+          }
+        });
+      }
+    }
+
+    // 2. Try User model
     const user = await User.findOne({ email: emailLower });
     if (user) {
       const isPasswordValid = await user.comparePassword(password);
@@ -180,28 +202,6 @@ const login = async (req, res) => {
             subscription: user.subscription || null,
             purchasedAddons: user.purchasedAddons || [],
             createdAt: user.createdAt
-          }
-        });
-      }
-    }
-
-    // 2. Try Employee model (employee or super_admin)
-    const employee = await Employee.findOne({ email: emailLower, isActive: true });
-    if (employee) {
-      const isPasswordValid = await employee.comparePassword(password);
-      if (isPasswordValid) {
-        const token = generateEmployeeToken(employee._id);
-        return res.json({
-          success: true,
-          message: 'Login successful',
-          token,
-          user: {
-            id: employee._id,
-            name: employee.name,
-            email: employee.email,
-            role: employee.role,
-            isEmployee: true,
-            createdAt: employee.createdAt
           }
         });
       }
