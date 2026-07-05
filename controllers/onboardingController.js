@@ -11,6 +11,7 @@ const saveOnboarding = async (req, res) => {
     const {
       // Step 1: Personal Details
       fullName,
+      dateOfBirth,
       email,
       phoneCode,
       phone,
@@ -44,6 +45,7 @@ const saveOnboarding = async (req, res) => {
       cv_details,
       academicTranscripts_details,
       certifications_details,
+      visaAttachment_details,
       portfolioWebsite,
       github,
       linkedinProfile,
@@ -104,11 +106,15 @@ const saveOnboarding = async (req, res) => {
     const requiredErrors = validateOnboardingRequired(
       {
         address,
+        dateOfBirth,
         houseNumber,
         streetName,
         suburb,
         state,
         postcode,
+        workRightsInAustralia,
+        visaType,
+        visaAttachment_details,
         primaryJobTitles: parsedPrimaryJobTitles,
         skills: parsedSkills,
         minAcceptableSalary,
@@ -131,6 +137,7 @@ const saveOnboarding = async (req, res) => {
 
     // Step 1 fields
     if (fullName !== undefined) updateData.fullName = fullName;
+    if (dateOfBirth !== undefined && dateOfBirth !== '') updateData.dateOfBirth = new Date(dateOfBirth);
     if (email !== undefined && email.trim() && /^\S+@\S+\.\S+$/.test(email)) {
       updateData.email = email.trim().toLowerCase();
     }
@@ -138,7 +145,7 @@ const saveOnboarding = async (req, res) => {
     if (phone !== undefined) updateData.phone = phone;
     if (currentLocation !== undefined) updateData.currentLocation = currentLocation;
     if (workRightsInAustralia !== undefined) updateData.workRightsInAustralia = workRightsInAustralia;
-    if (visaType !== undefined) updateData.visaType = visaType;
+    if (visaType !== undefined) updateData.visaType = workRightsInAustralia === 'Visa Holder' ? visaType : '';
     if (address !== undefined) updateData.address = address;
     // Separate address fields
     if (houseNumber !== undefined) updateData.houseNumber = houseNumber;
@@ -210,6 +217,15 @@ const saveOnboarding = async (req, res) => {
     }
     if (academicTranscripts_details) updateData.academicTranscripts_details = academicTranscripts_details;
     if (certifications_details) updateData.certifications_details = certifications_details;
+    if (workRightsInAustralia === 'Visa Holder') {
+      if (visaAttachment_details) {
+        updateData.visaAttachment_details = visaAttachment_details;
+      } else if (user.visaAttachment_details) {
+        updateData.visaAttachment_details = user.visaAttachment_details;
+      }
+    } else if (workRightsInAustralia !== undefined) {
+      updateData.visaAttachment_details = null;
+    }
 
     // Step 4: Employment History
     if (currentRole !== undefined) updateData.currentRole = currentRole;
@@ -277,6 +293,7 @@ const saveOnboarding = async (req, res) => {
         email: updatedUser.email,
         isOnboardingComplete: updatedUser.isOnboardingComplete,
         fullName: updatedUser.fullName,
+        dateOfBirth: updatedUser.dateOfBirth,
         email: updatedUser.email,
         phoneCode: updatedUser.phoneCode,
         phone: updatedUser.phone,
@@ -308,6 +325,7 @@ const saveOnboarding = async (req, res) => {
         cv_details: updatedUser.cv_details || null,
         academicTranscripts_details: updatedUser.academicTranscripts_details || null,
         certifications_details: updatedUser.certifications_details || null,
+        visaAttachment_details: updatedUser.visaAttachment_details || null,
         currentRole: updatedUser.currentRole,
         previousRoles: updatedUser.previousRoles,
         keyResponsibilities: updatedUser.keyResponsibilities,
@@ -367,6 +385,7 @@ const getOnboarding = async (req, res) => {
       onboarding: {
         isOnboardingComplete: user.isOnboardingComplete,
         fullName: user.fullName,
+        dateOfBirth: user.dateOfBirth,
         email: user.email,
         phoneCode: user.phoneCode,
         phone: user.phone,
@@ -398,6 +417,7 @@ const getOnboarding = async (req, res) => {
         cv_details: user.cv_details || null,
         academicTranscripts_details: user.academicTranscripts_details || null,
         certifications_details: user.certifications_details || null,
+        visaAttachment_details: user.visaAttachment_details || null,
         currentRole: user.currentRole,
         previousRoles: user.previousRoles,
         keyResponsibilities: user.keyResponsibilities,

@@ -102,6 +102,9 @@ const UserSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  dateOfBirth: {
+    type: Date
+  },
   phoneCode: {
     type: String,
     trim: true
@@ -283,6 +286,16 @@ const UserSchema = new mongoose.Schema({
     uploadedAt: { type: Date }
   },
   certifications_details: {
+    fileName: { type: String, trim: true },
+    fileSize: { type: Number },
+    resourceId: { type: String, trim: true },
+    url: { type: String, trim: true },
+    key: { type: String, trim: true },
+    bucket: { type: String, trim: true },
+    mimeType: { type: String, trim: true },
+    uploadedAt: { type: Date }
+  },
+  visaAttachment_details: {
     fileName: { type: String, trim: true },
     fileSize: { type: Number },
     resourceId: { type: String, trim: true },

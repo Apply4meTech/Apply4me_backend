@@ -4,6 +4,7 @@ const SUBMISSION_SOURCES = [
   'dashboard_url',
   'dashboard_manual',
   'job_finder',
+  'employee_external_url',
 ];
 
 const LABELS = {
@@ -12,6 +13,7 @@ const LABELS = {
   dashboard_url: 'Customer dashboard (URL)',
   dashboard_manual: 'Customer dashboard (manual entry)',
   job_finder: 'Job Finder (Adzuna)',
+  employee_external_url: 'AFM team (external job link)',
 };
 
 const normalizeSubmissionSource = (value) => {

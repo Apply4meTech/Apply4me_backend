@@ -68,6 +68,7 @@ const buildCustomerProfileResponse = async (user) => {
   const coverLetter = await docForEmployee(user.cv_details);
   const academicTranscripts = await docForEmployee(user.academicTranscripts_details);
   const certifications = await docForEmployee(user.certifications_details);
+  const visaAttachment = await docForEmployee(user.visaAttachment_details);
   const atsResume = await docForEmployee(user.atsReport?.optimizedResumeDetails);
 
   const formatAddress = () => {
@@ -102,6 +103,7 @@ const buildCustomerProfileResponse = async (user) => {
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     // Personal details
+    dateOfBirth: user.dateOfBirth || null,
     phoneCode: user.phoneCode,
     phone: user.phone,
     currentLocation: user.currentLocation,
@@ -163,11 +165,13 @@ const buildCustomerProfileResponse = async (user) => {
     coverLetter,
     academicTranscripts,
     certifications,
+    visaAttachment,
     atsResume,
     resume_details: resume,
     cv_details: coverLetter,
     academicTranscripts_details: academicTranscripts,
     certifications_details: certifications,
+    visaAttachment_details: visaAttachment,
     // Subscription & addons
     subscription: user.subscription || null,
     purchasedAddons: user.purchasedAddons || [],

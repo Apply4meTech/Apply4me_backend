@@ -23,7 +23,7 @@ const imageMimeTypes = [
 const fileFilter = (req, file, cb) => {
   const type = (req.params.type || '').toLowerCase();
   let allowed = docMimeTypes;
-  if (type === 'certifications') {
+  if (type === 'certifications' || type === 'visa_attachment') {
     allowed = [...docMimeTypes, ...imageMimeTypes];
   }
   if (type === 'cv' || type === 'cover_letter') {
@@ -32,7 +32,7 @@ const fileFilter = (req, file, cb) => {
   if (allowed.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error(`Invalid file type. Allowed: ${type === 'certifications' ? 'PDF, DOC, DOCX, or images' : 'PDF, DOC, DOCX'}`), false);
+    cb(new Error(`Invalid file type. Allowed: ${type === 'certifications' || type === 'visa_attachment' ? 'PDF, DOC, DOCX, or images' : 'PDF, DOC, DOCX'}`), false);
   }
 };
 

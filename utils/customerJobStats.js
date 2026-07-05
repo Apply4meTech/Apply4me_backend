@@ -1,8 +1,11 @@
 const Job = require('../models/Job');
-const { SUBMISSION_SOURCES } = require('./submissionSource');
-
 /** Jobs the customer submitted (extension or dashboard) */
-const CUSTOMER_SUBMISSION_SOURCES = SUBMISSION_SOURCES;
+const CUSTOMER_SUBMISSION_SOURCES = [
+  'chrome_extension',
+  'extension_url',
+  'dashboard_url',
+  'dashboard_manual',
+];
 
 const APPLIED_STATUSES = ['applied', 'response', 'rejected', 'completed'];
 const PENDING_STATUSES = ['pending', 'assigned', 'in_progress'];

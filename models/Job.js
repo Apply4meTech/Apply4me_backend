@@ -10,12 +10,12 @@ const JobSchema = new mongoose.Schema({
   /** How the job was submitted: chrome extension, extension URL paste, or customer dashboard */
   submissionSource: {
     type: String,
-    enum: ['chrome_extension', 'extension_url', 'dashboard_url', 'dashboard_manual', 'job_finder'],
+    enum: ['chrome_extension', 'extension_url', 'dashboard_url', 'dashboard_manual', 'job_finder', 'employee_external_url'],
     default: null,
   },
   status: { 
     type: String, 
-    enum: ['pending', 'assigned', 'in_progress', 'applied', 'response', 'rejected', 'completed'],
+    enum: ['pending', 'assigned', 'in_progress', 'applied', 'response', 'rejected', 'completed', 'job_expired'],
     default: 'pending'
   },
   userId: { 

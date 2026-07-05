@@ -1,6 +1,7 @@
 const stripeService = require('../services/stripeService');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
+const Plan = require('../models/Plan');
 const { createCommissionForReferredUser } = require('../utils/affiliateCommission');
 const { sendAccountActivatedWelcomeEmail, sendChromeExtensionGuideEmail } = require('../utils/emailService');
 const { getAddonByPlanName } = require('../utils/addonCatalog');
@@ -136,7 +137,24 @@ const createStripePaymentIntent = async (req, res) => {
           message: 'You already have this add-on'
         });
       }
-    } else if (user && user.subscription && user.subscription.planName) {
+    } else {
+      const selectedPlan = await Plan.findOne({ name: planName, isActive: true }).select('price currency').lean();
+      if (!selectedPlan) {
+        return res.status(400).json({
+          success: false,
+          message: 'Selected plan is not available'
+        });
+      }
+
+      if (Math.round(amount * 100) !== Math.round(Number(selectedPlan.price) * 100)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Amount does not match the selected plan'
+        });
+      }
+    }
+
+    if (!isAddonPurchase && user && user.subscription && user.subscription.planName) {
       const now = new Date();
       const isExpired = user.subscription.endDate && new Date(user.subscription.endDate) < now;
       if (!isExpired && user.subscription.status === 'active') {
@@ -145,12 +163,6 @@ const createStripePaymentIntent = async (req, res) => {
           message: `You already have an active plan (${user.subscription.planName}). Please wait for it to expire or contact support to upgrade.`
         });
       }
-    }
-
-    // Premium: charge A$1 for live card testing (mirrors pricing page). Server-side so amount cannot be spoofed.
-    const PREMIUM_CHECKOUT_AMOUNT_AUD = 1;
-    if (planName === 'Premium') {
-      amount = PREMIUM_CHECKOUT_AMOUNT_AUD;
     }
 
     // Validate amount limits

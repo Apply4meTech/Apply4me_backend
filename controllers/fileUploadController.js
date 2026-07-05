@@ -2,18 +2,20 @@ const { uploadFileToS3, deleteFileFromS3 } = require('../utils/s3Service');
 const User = require('../models/User');
 const { runPostUploadResumePipeline, isAtsEligible } = require('../utils/resumePipeline');
 
-const VALID_UPLOAD_TYPES = ['resume', 'cv', 'academic_transcripts', 'certifications'];
+const VALID_UPLOAD_TYPES = ['resume', 'cv', 'academic_transcripts', 'certifications', 'visa_attachment'];
 const TYPE_TO_FIELD = {
   resume: 'resume_details',
   cv: 'cv_details',
   academic_transcripts: 'academicTranscripts_details',
-  certifications: 'certifications_details'
+  certifications: 'certifications_details',
+  visa_attachment: 'visaAttachment_details'
 };
 const TYPE_TO_FOLDER = {
   resume: 'resumes',
   cv: 'cover-letters',
   academic_transcripts: 'academic-transcripts',
-  certifications: 'certifications'
+  certifications: 'certifications',
+  visa_attachment: 'visa-attachments'
 };
 
 /**
@@ -108,7 +110,7 @@ const uploadFile = async (req, res) => {
     if (!VALID_UPLOAD_TYPES.includes(fileType)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid file type. Use "resume", "cv", "academic_transcripts", or "certifications"'
+        error: 'Invalid file type. Use "resume", "cv", "academic_transcripts", "certifications", or "visa_attachment"'
       });
     }
 
@@ -184,7 +186,7 @@ const deleteFile = async (req, res) => {
     if (!VALID_UPLOAD_TYPES.includes(fileType)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid file type. Use "resume", "cv", "academic_transcripts", or "certifications"'
+        error: 'Invalid file type. Use "resume", "cv", "academic_transcripts", "certifications", or "visa_attachment"'
       });
     }
 

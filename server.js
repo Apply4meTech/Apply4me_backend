@@ -67,6 +67,7 @@ const resumeRoutes = require('./routes/resumeRoutes');
 const jobTitleRoutes = require('./routes/jobTitleRoutes');
 const affiliateRoutes = require('./routes/affiliateRoutes');
 const emailTestRoutes = require('./routes/emailTestRoutes');
+const interviewRoutes = require('./routes/interviewRoutes');
 
 // Use Routes
 app.use('/', healthRoutes);
@@ -91,6 +92,7 @@ app.use('/api/resume', resumeRoutes);
 app.use('/api/job-titles', jobTitleRoutes);
 app.use('/api/affiliate', affiliateRoutes);
 app.use('/api/test', emailTestRoutes);
+app.use('/api/interviews', interviewRoutes);
 
 // Serve dashboard 
 app.get('/dashboard', (req, res) => {

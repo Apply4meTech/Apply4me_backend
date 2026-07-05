@@ -130,7 +130,7 @@ const signup = async (req, res) => {
 };
 
 // Unified Login controller - handles both User and Employee (including super_admin)
-// Single endpoint for all user types; tries User first, then Employee
+// Single endpoint for all user types; prefer Employee when the same email exists in both collections.
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -146,6 +146,7 @@ const login = async (req, res) => {
     const emailLower = email.toLowerCase();
 
     // 1. Try Employee model first so staff accounts are not mistaken for customers.
+    // Some admin emails can also exist as customer users; employee login must win.
     const employee = await Employee.findOne({ email: emailLower, isActive: true });
     if (employee) {
       const isPasswordValid = await employee.comparePassword(password);

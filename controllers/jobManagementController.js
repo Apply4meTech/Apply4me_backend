@@ -9,6 +9,7 @@ const { uploadFileToS3, deleteFileFromS3, getSignedUrl, getFileBufferFromS3 } = 
 const { extractResumeText } = require('../utils/resumeExtractor');
 const { customizeResumeForJob } = require('../utils/resumeCustomizer');
 const { generateATSFriendlyPDF } = require('../utils/pdfGenerator');
+const { detectPlatformFromUrl } = require('../utils/platformDetector');
 
 /**
  * Update job status
@@ -22,7 +23,7 @@ const updateJobStatus = async (req, res) => {
     const employee = req.employee;
 
     // Validate status
-    const validStatuses = ['pending', 'assigned', 'in_progress', 'applied', 'response', 'rejected', 'completed'];
+    const validStatuses = ['pending', 'assigned', 'in_progress', 'applied', 'response', 'rejected', 'completed', 'job_expired'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -851,6 +852,201 @@ const assignJobToEmployee = async (req, res) => {
 };
 
 /**
+ * Bulk assign jobs to an employee (super admin only)
+ * PATCH /api/employee/jobs/bulk-assign
+ */
+const bulkAssignJobsToEmployee = async (req, res) => {
+  try {
+    const { jobIds, employeeId } = req.body;
+    const employee = req.employee;
+
+    if (employee.role !== 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Only super admin can bulk assign jobs to employees'
+      });
+    }
+
+    if (!Array.isArray(jobIds) || jobIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'At least one job ID is required'
+      });
+    }
+
+    if (jobIds.length > 200) {
+      return res.status(400).json({
+        success: false,
+        error: 'You can bulk assign up to 200 jobs at a time'
+      });
+    }
+
+    if (!employeeId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Employee ID is required'
+      });
+    }
+
+    const assignedEmployee = await Employee.findOne({
+      _id: employeeId,
+      role: 'employee',
+      isActive: true
+    });
+
+    if (!assignedEmployee) {
+      return res.status(404).json({
+        success: false,
+        error: 'Active employee not found'
+      });
+    }
+
+    const validJobIds = [...new Set(jobIds.filter((id) => id && String(id).match(/^[0-9a-fA-F]{24}$/)))];
+    if (!validJobIds.length) {
+      return res.status(400).json({
+        success: false,
+        error: 'No valid job IDs provided'
+      });
+    }
+
+    const jobs = await Job.find({ _id: { $in: validJobIds } }).select('_id status').lean();
+    if (!jobs.length) {
+      return res.status(404).json({
+        success: false,
+        error: 'No matching jobs found'
+      });
+    }
+
+    const now = new Date();
+    await Job.bulkWrite(
+      jobs.map((job) => ({
+        updateOne: {
+          filter: { _id: job._id },
+          update: {
+            $set: {
+              assignedTo: assignedEmployee._id,
+              assignedAt: now,
+              status: job.status === 'pending' ? 'assigned' : job.status,
+              updatedAt: now
+            }
+          }
+        }
+      }))
+    );
+
+    res.json({
+      success: true,
+      message: `${jobs.length} job${jobs.length === 1 ? '' : 's'} assigned successfully`,
+      assignedCount: jobs.length,
+      assignedTo: {
+        id: assignedEmployee._id,
+        name: assignedEmployee.name,
+        email: assignedEmployee.email
+      }
+    });
+  } catch (error) {
+    console.error('Error bulk assigning jobs:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to bulk assign jobs',
+      details: error.message
+    });
+  }
+};
+
+/**
+ * Add an external job link for a customer from the employee dashboard.
+ * POST /api/employee/customers/:userId/jobs
+ */
+const createExternalJobForCustomer = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { title, company, location, jobUrl, metadata } = req.body;
+    const employeeId = req.employeeId;
+    const employee = req.employee;
+    const isSuperAdmin = employee.role === 'super_admin';
+
+    if (!userId || !String(userId).match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ success: false, error: 'Valid customer ID is required' });
+    }
+
+    if (!title?.trim()) {
+      return res.status(400).json({ success: false, error: 'Job title is required' });
+    }
+
+    if (!jobUrl?.trim()) {
+      return res.status(400).json({ success: false, error: 'Job link is required' });
+    }
+
+    let normalizedUrl;
+    try {
+      normalizedUrl = new URL(jobUrl.trim()).toString();
+    } catch {
+      return res.status(400).json({ success: false, error: 'Please enter a valid job URL' });
+    }
+
+    const customer = await User.findOne({ _id: userId, role: 'user' })
+      .select('name fullName email phone phoneCode')
+      .lean();
+    if (!customer) {
+      return res.status(404).json({ success: false, error: 'Customer not found' });
+    }
+
+    if (!isSuperAdmin) {
+      const hasAccess = await Job.exists({ userId: customer._id, assignedTo: employeeId });
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          error: 'You do not have access to add jobs for this customer'
+        });
+      }
+    }
+
+    const platform = detectPlatformFromUrl(normalizedUrl);
+    const job = await Job.create({
+      title: title.trim(),
+      company: company?.trim() || '',
+      location: location?.trim() || '',
+      jobUrl: normalizedUrl,
+      platform,
+      submissionSource: 'employee_external_url',
+      status: 'assigned',
+      userId: customer._id,
+      assignedTo: employeeId,
+      assignedAt: new Date(),
+      metadata: {
+        ...(metadata && typeof metadata === 'object' ? metadata : {}),
+        addedByEmployee: employeeId,
+        addedByEmployeeRole: employee.role,
+      },
+      userInfo: {
+        name: customer.fullName || customer.name || '',
+        email: customer.email || '',
+        phone: [customer.phoneCode, customer.phone].filter(Boolean).join(' ').trim(),
+      },
+    });
+
+    const populatedJob = await Job.findById(job._id)
+      .populate('userId', 'name email fullName')
+      .populate('assignedTo', 'name email')
+      .lean();
+
+    res.status(201).json({
+      success: true,
+      message: 'External job link added for customer',
+      job: populatedJob
+    });
+  } catch (error) {
+    console.error('Error creating external job for customer:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add external job link',
+      details: error.message
+    });
+  }
+};
+
+/**
  * Unassign job from employee (super admin only)
  * PATCH /api/employee/jobs/:jobId/unassign
  */
@@ -1209,6 +1405,8 @@ module.exports = {
   listAssignableCustomers,
   createAndAssignJobFromSearch,
   assignJobToEmployee,
+  bulkAssignJobsToEmployee,
+  createExternalJobForCustomer,
   unassignJobFromEmployee,
   updateJobNotes,
   updateJobMetadata,

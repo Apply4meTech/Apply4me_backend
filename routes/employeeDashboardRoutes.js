@@ -11,6 +11,8 @@ const {
   deleteJobFile, 
   deleteJob,
   assignJobToEmployee,
+  bulkAssignJobsToEmployee,
+  createExternalJobForCustomer,
   unassignJobFromEmployee,
   updateJobNotes,
   updateJobMetadata,
@@ -24,7 +26,12 @@ const {
   uploadEmployeeProfilePicture,
   deleteEmployeeProfilePicture
 } = require('../controllers/employeeProfileController');
-const { getCustomerProfile, listCustomers } = require('../controllers/employeeCustomerController');
+const {
+  getCustomerProfile,
+  listCustomers,
+  listCustomerInterviews,
+  getCustomerInterview,
+} = require('../controllers/employeeCustomerController');
 const { searchExternalJobs } = require('../controllers/jobScraperController');
 const { listAffiliates, markCommissionsPaid } = require('../controllers/employeeAffiliateController');
 const { requireSuperAdmin } = require('../middleware/employeeAuth');
@@ -157,7 +164,10 @@ router.post('/jobs/from-search', createAndAssignJobFromSearch);
 
 // Customers (super admin list; profile read-only for employees with access)
 router.get('/customers', requireSuperAdmin, listCustomers);
+router.get('/customers/:userId/interviews/:interviewId', getCustomerInterview);
+router.get('/customers/:userId/interviews', listCustomerInterviews);
 router.get('/customers/:userId', getCustomerProfile);
+router.post('/customers/:userId/jobs', createExternalJobForCustomer);
 
 // Affiliates (super admin only)
 router.get('/affiliates', requireSuperAdmin, listAffiliates);
@@ -170,6 +180,7 @@ router.post('/profile/picture', uploadPictureMiddleware, uploadEmployeeProfilePi
 router.delete('/profile/picture', deleteEmployeeProfilePicture);
 
 // Job management routes
+router.patch('/jobs/bulk-assign', bulkAssignJobsToEmployee);
 router.patch('/jobs/:jobId/status', updateJobStatus);
 router.patch('/jobs/:jobId/email', updateJobEmailData);
 router.patch('/jobs/:jobId/notes', updateJobNotes);

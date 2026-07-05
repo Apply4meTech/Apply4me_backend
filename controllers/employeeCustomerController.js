@@ -1,11 +1,14 @@
 const User = require('../models/User');
 const Job = require('../models/Job');
 const Payment = require('../models/Payment');
+const Interview = require('../models/Interview');
 const {
   buildCustomerProfileResponse,
   buildCustomerListItem,
 } = require('../utils/customerProfileResponse');
 const { getPlanQuotaForUserIds } = require('../utils/planQuota');
+const { getInterviewQuotaForUser } = require('../utils/interviewQuota');
+const { formatInterview, formatInterviewSummary } = require('../utils/interviewResponse');
 const {
   getCustomerJobStatsForUserIds,
   hasSuccessfulPurchase,
@@ -207,7 +210,86 @@ const getCustomerProfile = async (req, res) => {
   }
 };
 
+const assertCustomerAccess = async (req, customerId) => {
+  const employeeId = req.employeeId;
+  const employee = req.employee;
+  const isSuperAdmin = employee.role === 'super_admin';
+
+  if (!customerId) {
+    return { ok: false, status: 400, error: 'Customer ID required' };
+  }
+
+  if (!isSuperAdmin) {
+    const hasAccess = await Job.exists({
+      userId: customerId,
+      assignedTo: employeeId,
+    });
+    if (!hasAccess) {
+      return { ok: false, status: 403, error: 'You do not have access to view this customer' };
+    }
+  }
+
+  const user = await User.findById(customerId).select('_id role');
+  if (!user || user.role !== 'user') {
+    return { ok: false, status: 404, error: 'Customer not found' };
+  }
+
+  return { ok: true, user };
+};
+
+/**
+ * GET /api/employee/customers/:userId/interviews
+ */
+const listCustomerInterviews = async (req, res) => {
+  try {
+    const { userId: customerId } = req.params;
+    const access = await assertCustomerAccess(req, customerId);
+    if (!access.ok) {
+      return res.status(access.status).json({ success: false, error: access.error });
+    }
+
+    const [interviews, quota] = await Promise.all([
+      Interview.find({ userId: customerId }).sort({ createdAt: -1 }).lean(),
+      getInterviewQuotaForUser(customerId)
+    ]);
+
+    res.json({
+      success: true,
+      data: interviews.map(formatInterviewSummary),
+      quota
+    });
+  } catch (error) {
+    console.error('Error listing customer interviews:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch customer interviews' });
+  }
+};
+
+/**
+ * GET /api/employee/customers/:userId/interviews/:interviewId
+ */
+const getCustomerInterview = async (req, res) => {
+  try {
+    const { userId: customerId, interviewId } = req.params;
+    const access = await assertCustomerAccess(req, customerId);
+    if (!access.ok) {
+      return res.status(access.status).json({ success: false, error: access.error });
+    }
+
+    const interview = await Interview.findOne({ _id: interviewId, userId: customerId });
+    if (!interview) {
+      return res.status(404).json({ success: false, error: 'Interview not found' });
+    }
+
+    res.json({ success: true, data: formatInterview(interview) });
+  } catch (error) {
+    console.error('Error fetching customer interview:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch interview report' });
+  }
+};
+
 module.exports = {
   listCustomers,
   getCustomerProfile,
+  listCustomerInterviews,
+  getCustomerInterview,
 };

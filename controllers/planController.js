@@ -272,11 +272,12 @@ const seedPlans = async (req, res) => {
         name: 'Starter',
         price: 89,
         actualPrice: 119,
-        description: '0 Jobs (Add-Ons available)',
+        description: '100 customer-provided jobs',
         currency: 'AUD',
         billingPeriod: 'onetime',
         features: [
-          { text: '0 Jobs (Add-Ons available)', included: true },
+          { text: '100 total job tokens', included: true },
+          { text: 'All jobs provided by customer', included: true },
           { text: 'Human Assistant', included: true },
           { text: 'Standard cover letters', included: true },
           { text: 'Real-time progress updates', included: true }
@@ -285,17 +286,21 @@ const seedPlans = async (req, res) => {
         badge: null,
         isActive: true,
         displayOrder: 1,
-        jobApplicationsLimit: 0
+        jobApplicationsLimit: 100,
+        afmJobSearchLimit: 0,
+        customerProvidedJobLimit: 100
       },
       {
         name: 'Standard',
         price: 149,
         actualPrice: 199,
-        description: '90 Jobs',
+        description: '175 total job tokens',
         currency: 'AUD',
         billingPeriod: 'onetime',
         features: [
-          { text: '90 Jobs', included: true },
+          { text: '175 total job tokens', included: true },
+          { text: '90 jobs searched by AFM Team', included: true },
+          { text: '85 jobs provided by customer', included: true },
           { text: 'Human Assistant', included: true },
           { text: 'Custom cover letters', included: true },
           { text: 'Resume Tailored Per Job', included: true },
@@ -305,17 +310,21 @@ const seedPlans = async (req, res) => {
         badge: null,
         isActive: true,
         displayOrder: 2,
-        jobApplicationsLimit: 90
+        jobApplicationsLimit: 175,
+        afmJobSearchLimit: 90,
+        customerProvidedJobLimit: 85
       },
       {
         name: 'Pro',
         price: 229,
         actualPrice: 299,
-        description: '190 Jobs',
+        description: '250 total job tokens',
         currency: 'AUD',
         billingPeriod: 'onetime',
         features: [
-          { text: '190 Jobs', included: true },
+          { text: '250 total job tokens', included: true },
+          { text: '190 jobs searched by AFM Team', included: true },
+          { text: '60 jobs provided by customer', included: true },
           { text: 'Human Assistant', included: true },
           { text: 'Custom cover letters', included: true },
           { text: 'Resume Tailored Per Job', included: true },
@@ -326,7 +335,9 @@ const seedPlans = async (req, res) => {
         badge: 'Most Popular',
         isActive: true,
         displayOrder: 3,
-        jobApplicationsLimit: 190
+        jobApplicationsLimit: 250,
+        afmJobSearchLimit: 190,
+        customerProvidedJobLimit: 60
       },
       {
         name: 'Premium',
@@ -336,7 +347,8 @@ const seedPlans = async (req, res) => {
         currency: 'AUD',
         billingPeriod: 'onetime',
         features: [
-          { text: '350 Jobs', included: true },
+          { text: '350 total job tokens', included: true },
+          { text: 'All jobs searched by AFM Team', included: true },
           { text: 'Dedicated Human Assistant', included: true },
           { text: 'Custom cover letters', included: true },
           { text: 'Resume Tailored Per Job', included: true },
@@ -349,7 +361,9 @@ const seedPlans = async (req, res) => {
         badge: 'Best Value!',
         isActive: true,
         displayOrder: 4,
-        jobApplicationsLimit: 350
+        jobApplicationsLimit: 350,
+        afmJobSearchLimit: 350,
+        customerProvidedJobLimit: 0
       }
     ];
 

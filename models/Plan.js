@@ -83,6 +83,14 @@ const planSchema = new mongoose.Schema({
     type: Number,
     default: null // null means unlimited
   },
+  afmJobSearchLimit: {
+    type: Number,
+    default: null
+  },
+  customerProvidedJobLimit: {
+    type: Number,
+    default: null
+  },
   
   // Additional metadata
   metadata: {
