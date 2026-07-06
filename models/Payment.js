@@ -27,7 +27,7 @@ const paymentSchema = new mongoose.Schema({
   amount: {
     type: Number,
     required: true,
-    min: 1
+    min: 0
   },
   
   currency: {
@@ -45,7 +45,7 @@ const paymentSchema = new mongoose.Schema({
   // Payment method
   paymentMethod: {
     type: String,
-    enum: ['UPI', 'CARD', 'NET_BANKING', 'WALLET', 'STRIPE'],
+    enum: ['UPI', 'CARD', 'NET_BANKING', 'WALLET', 'STRIPE', 'COUPON'],
     default: 'STRIPE'
   },
   

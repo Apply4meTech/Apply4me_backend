@@ -412,6 +412,27 @@ const verifyStripePayment = async (req, res) => {
       });
     }
 
+    // Coupon or already-completed payment — skip Stripe
+    const existingPayment = await Payment.findOne({
+      stripePaymentIntentId: payment_intent_id,
+      gateway: 'STRIPE'
+    });
+
+    if (existingPayment?.status === 'SUCCESS') {
+      await sendReceiptIfNeeded(existingPayment);
+      return res.json({
+        success: true,
+        message: 'Payment verified successfully',
+        data: {
+          payment_intent_id,
+          status: 'SUCCESS',
+          planName: existingPayment.planName,
+          billingPeriod: existingPayment.billingPeriod
+        },
+        redirect_url: paymentSuccessRedirect()
+      });
+    }
+
     // Retrieve payment intent from Stripe
     const stripeResult = await stripeService.getPaymentIntent(payment_intent_id);
 
