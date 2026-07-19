@@ -22,39 +22,50 @@ const getAddressSuggestions = async (req, res) => {
 
     // Use Places API (New) Autocomplete endpoint
     const url = 'https://places.googleapis.com/v1/places:autocomplete';
-    
+
     const response = await axios.post(
       url,
       {
         input: input.trim(),
         includedRegionCodes: ['AU'], // Restrict to Australia
-        includedPrimaryTypes: ['street_address', 'premise']
+        // Omit includedPrimaryTypes: street_address/premise are Table B and
+        // can reject Autocomplete (New) requests; AU region is enough scope.
       },
       {
         headers: {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': 'suggestions.placePrediction.placeId,suggestions.placePrediction.text'
-        }
+          'X-Goog-FieldMask':
+            'suggestions.placePrediction.placeId,suggestions.placePrediction.place,suggestions.placePrediction.text',
+        },
       }
     );
 
     const suggestions = response.data.suggestions || [];
-    
+
     res.json({
       success: true,
-      suggestions: suggestions.map(suggestion => ({
-        placeId: suggestion.placePrediction?.placeId,
-        description: suggestion.placePrediction?.text?.text || '',
-        structuredFormat: suggestion.placePrediction?.structuredFormat
-      }))
+      suggestions: suggestions
+        .map((suggestion) => {
+          const prediction = suggestion.placePrediction || {};
+          // Places API (New) may return placeId or full resource name "places/ChIJ..."
+          const rawId = prediction.placeId || prediction.place || '';
+          const placeId = String(rawId).replace(/^places\//, '');
+          return {
+            placeId,
+            description: prediction.text?.text || '',
+            structuredFormat: prediction.structuredFormat,
+          };
+        })
+        .filter((s) => s.placeId && s.description),
     });
   } catch (error) {
     console.error('Error fetching address suggestions:', error.response?.data || error.message);
-    res.status(500).json({
+    const status = error.response?.status === 403 ? 503 : 500;
+    res.status(status).json({
       success: false,
       error: 'Failed to fetch address suggestions',
-      details: error.response?.data?.error?.message || error.message
+      details: error.response?.data?.error?.message || error.message,
     });
   }
 };
@@ -79,9 +90,11 @@ const getPlaceDetails = async (req, res) => {
       });
     }
 
+    const normalizedPlaceId = String(placeId).replace(/^places\//, '');
+
     // Use Places API (New) Place Details endpoint
-    const url = `https://places.googleapis.com/v1/places/${placeId}`;
-    
+    const url = `https://places.googleapis.com/v1/places/${encodeURIComponent(normalizedPlaceId)}`;
+
     const response = await axios.get(url, {
       headers: {
         'X-Goog-Api-Key': apiKey,
@@ -90,7 +103,7 @@ const getPlaceDetails = async (req, res) => {
     });
 
     const place = response.data;
-    
+
     // Parse address components
     const addressComponents = place.addressComponents || [];
     let houseNumber = '';
@@ -106,10 +119,14 @@ const getPlaceDetails = async (req, res) => {
         houseNumber = component.longText || component.shortText || '';
       } else if (types.includes('route')) {
         streetName = component.longText || component.shortText || '';
-      } else if (types.includes('locality') || types.includes('sublocality')) {
-        suburb = component.longText || component.shortText || '';
+      } else if (
+        types.includes('locality') ||
+        types.includes('sublocality') ||
+        types.includes('sublocality_level_1')
+      ) {
+        if (!suburb) suburb = component.longText || component.shortText || '';
       } else if (types.includes('administrative_area_level_1')) {
-        state = component.longText || component.shortText || '';
+        state = component.shortText || component.longText || '';
       } else if (types.includes('postal_code')) {
         postcode = component.longText || component.shortText || '';
       }
@@ -131,7 +148,8 @@ const getPlaceDetails = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching place details:', error.response?.data || error.message);
-    res.status(500).json({
+    const status = error.response?.status === 403 ? 503 : 500;
+    res.status(status).json({
       success: false,
       error: 'Failed to fetch place details',
       details: error.response?.data?.error?.message || error.message

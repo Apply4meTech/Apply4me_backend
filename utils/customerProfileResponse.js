@@ -16,8 +16,12 @@ const getSignedUrlSafe = async (key) => {
 };
 
 const signDocument = async (details) => {
-  if (!details) return null;
+  if (details == null) return null;
+  // Mongoose stores explicit null nested paths as a truthy Subdocument whose
+  // toObject() returns null — e.g. visaAttachment_details: null
   const doc = typeof details.toObject === 'function' ? details.toObject() : { ...details };
+  if (!doc || typeof doc !== 'object') return null;
+  if (!doc.key && !doc.url && !doc.fileName) return null;
   if (doc.key) {
     doc.url = (await getSignedUrlSafe(doc.key)) || doc.url;
   }
