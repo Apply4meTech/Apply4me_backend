@@ -685,6 +685,10 @@ const createAndAssignJobFromSearch = async (req, res) => {
       });
     }
 
+    const employeeId = req.employeeId;
+    const employee = req.employee;
+    const addedByEmployee = employee?.role === 'employee' && employeeId;
+
     job = await Job.create({
       title: title.trim(),
       company: (company || '').trim() || '—',
@@ -692,29 +696,33 @@ const createAndAssignJobFromSearch = async (req, res) => {
       jobUrl: trimmedUrl || undefined,
       platform: platform || 'adzuna',
       submissionSource: 'job_finder',
-      status: 'pending',
+      status: addedByEmployee ? 'assigned' : 'pending',
       userId: customer._id,
+      assignedTo: addedByEmployee ? employeeId : undefined,
+      assignedAt: addedByEmployee ? new Date() : undefined,
       metadata: {
         description: description || '',
         salary: salary || '',
         requirements: category ? [category] : [],
+        addedByEmployee: employeeId || undefined,
+        addedByEmployeeRole: employee?.role || undefined,
       },
     });
 
-    let autoAssigned = false;
-    let assignedEmployee = null;
+    let autoAssigned = !!addedByEmployee;
 
-    try {
-      const settings = await Settings.getSettings();
-      if (settings.autoAssignEnabled) {
-        const assignmentResult = await autoAssignJob(job._id);
-        if (assignmentResult) {
-          autoAssigned = true;
-          assignedEmployee = assignmentResult.employee;
+    if (!addedByEmployee) {
+      try {
+        const settings = await Settings.getSettings();
+        if (settings.autoAssignEnabled) {
+          const assignmentResult = await autoAssignJob(job._id);
+          if (assignmentResult) {
+            autoAssigned = true;
+          }
         }
+      } catch (autoAssignError) {
+        console.error('Auto-assign after Job Finder create failed:', autoAssignError);
       }
-    } catch (autoAssignError) {
-      console.error('Auto-assign after Job Finder create failed:', autoAssignError);
     }
 
     job = await Job.findById(job._id)
@@ -724,7 +732,9 @@ const createAndAssignJobFromSearch = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: autoAssigned
+      message: addedByEmployee
+        ? 'Job added for customer and assigned to you'
+        : autoAssigned
         ? 'Job added for customer and auto-assigned to an employee'
         : 'Job added for customer successfully',
       isExisting: false,

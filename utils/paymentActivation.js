@@ -1,5 +1,6 @@
 const { getAddonByPlanName } = require('./addonCatalog');
 const { createCommissionForReferredUser } = require('./affiliateCommission');
+const { MAIN_PLANS } = require('./planTiers');
 
 /**
  * Activate subscription or add-on on the user after a successful payment.
@@ -9,7 +10,6 @@ const { createCommissionForReferredUser } = require('./affiliateCommission');
 const activatePlanOrAddonForPayment = async (user, payment) => {
   if (!payment?.planName || !user) return;
 
-  const mainPlans = ['Starter', 'Standard', 'Pro', 'Premium'];
   const addonDef = getAddonByPlanName(payment.planName);
   const isAddon = !!addonDef;
 
@@ -21,7 +21,7 @@ const activatePlanOrAddonForPayment = async (user, payment) => {
       user.purchasedAddons.push({ name: addonName, purchasedAt: new Date() });
       await user.save();
     }
-  } else if (mainPlans.includes(payment.planName)) {
+  } else if (MAIN_PLANS.includes(payment.planName)) {
     let endDate = null;
     if (payment.billingPeriod === 'quarterly') {
       endDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);

@@ -5,6 +5,7 @@ const Plan = require('../models/Plan');
 const { createCommissionForReferredUser } = require('../utils/affiliateCommission');
 const { sendAccountActivatedWelcomeEmail, sendChromeExtensionGuideEmail } = require('../utils/emailService');
 const { getAddonByPlanName } = require('../utils/addonCatalog');
+const { MAIN_PLANS, isValidMainPlan, canPurchaseMainPlan } = require('../utils/planTiers');
 
 const paymentSuccessRedirect = () =>
   `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/success`;
@@ -111,10 +112,8 @@ const createStripePaymentIntent = async (req, res) => {
     }
 
     const user = await User.findById(req.userId);
-    const mainPlans = ['Starter', 'Standard', 'Pro', 'Premium'];
     const addonDef = getAddonByPlanName(planName);
-    const isValidMainPlan = mainPlans.includes(planName);
-    if (!addonDef && !isValidMainPlan) {
+    if (!addonDef && !isValidMainPlan(planName)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid plan or add-on product'
@@ -154,13 +153,12 @@ const createStripePaymentIntent = async (req, res) => {
       }
     }
 
-    if (!isAddonPurchase && user && user.subscription && user.subscription.planName) {
-      const now = new Date();
-      const isExpired = user.subscription.endDate && new Date(user.subscription.endDate) < now;
-      if (!isExpired && user.subscription.status === 'active') {
+    if (!isAddonPurchase) {
+      const purchaseCheck = canPurchaseMainPlan(user?.subscription, planName);
+      if (!purchaseCheck.allowed) {
         return res.status(400).json({
           success: false,
-          message: `You already have an active plan (${user.subscription.planName}). Please wait for it to expire or contact support to upgrade.`
+          message: purchaseCheck.message
         });
       }
     }
@@ -282,11 +280,10 @@ const devFakePayment = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const mainPlans = ['Starter', 'Standard', 'Pro', 'Premium'];
     const addonDef = getAddonByPlanName(planName);
     const isAddonPurchase = !!addonDef;
 
-    if (!isAddonPurchase && !mainPlans.includes(planName)) {
+    if (!isAddonPurchase && !isValidMainPlan(planName)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid plan or add-on product'
@@ -294,14 +291,12 @@ const devFakePayment = async (req, res) => {
     }
 
     if (!isAddonPurchase) {
-      if (user.subscription?.planName && user.subscription?.status === 'active') {
-        const isExpired = user.subscription?.endDate && new Date(user.subscription.endDate) < new Date();
-        if (!isExpired) {
-          return res.status(400).json({
-            success: false,
-            message: `You already have an active plan (${user.subscription.planName})`
-          });
-        }
+      const purchaseCheck = canPurchaseMainPlan(user.subscription, planName);
+      if (!purchaseCheck.allowed) {
+        return res.status(400).json({
+          success: false,
+          message: purchaseCheck.message
+        });
       }
     } else {
       const hasAddon = user.purchasedAddons?.some((a) => a.name === addonDef.storageName);
@@ -507,7 +502,6 @@ const verifyStripePayment = async (req, res) => {
       try {
         const user = await User.findById(payment.userId);
         if (user) {
-          const mainPlans = ['Starter', 'Standard', 'Pro', 'Premium'];
           const addonDef = getAddonByPlanName(payment.planName);
           const isAddon = !!addonDef;
 
@@ -519,7 +513,7 @@ const verifyStripePayment = async (req, res) => {
               user.purchasedAddons.push({ name: addonName, purchasedAt: new Date() });
               await user.save();
             }
-          } else if (mainPlans.includes(payment.planName)) {
+          } else if (MAIN_PLANS.includes(payment.planName)) {
             // Main plan subscription only — unknown planName must not write invalid subscription
             let endDate = null;
             if (payment.billingPeriod === 'quarterly') {

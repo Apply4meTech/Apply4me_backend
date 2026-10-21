@@ -49,6 +49,44 @@ async function findEmployeeWithLeastJobs() {
 }
 
 /**
+ * Assign a job to a specific employee (used when that employee added the job).
+ */
+async function assignJobToEmployee(jobId, employeeId) {
+  try {
+    if (!jobId || !employeeId) return null;
+
+    const employee = await Employee.findById(employeeId).select('_id name email role isActive');
+    if (!employee || !employee.isActive) {
+      console.log('⚠️ Could not assign job: Employee not found or inactive');
+      return null;
+    }
+
+    const job = await Job.findByIdAndUpdate(
+      jobId,
+      {
+        assignedTo: employee._id,
+        assignedAt: new Date(),
+        status: 'assigned',
+        updatedAt: Date.now()
+      },
+      { new: true }
+    );
+
+    if (!job) {
+      console.error('⚠️ Job not found for employee assignment');
+      return null;
+    }
+
+    console.log(`✅ Assigned job "${job.title}" at ${job.company} to adding employee ${employee.name} (${employee.email})`);
+
+    return { employee, job };
+  } catch (error) {
+    console.error('Error assigning job to employee:', error);
+    return null;
+  }
+}
+
+/**
  * Auto-assign a job to an employee with the least pending jobs
  * @param {Object} jobId - The job ID to assign
  * @returns {Promise<Object|null>} Assigned employee or null if assignment failed
@@ -93,6 +131,7 @@ async function autoAssignJob(jobId) {
 
 module.exports = {
   findEmployeeWithLeastJobs,
+  assignJobToEmployee,
   autoAssignJob
 };
 
