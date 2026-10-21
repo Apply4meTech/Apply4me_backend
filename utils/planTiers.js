@@ -15,38 +15,35 @@ function isActiveUnexpiredSubscription(subscription) {
 }
 
 /**
- * One-time packages can be upgraded to a higher tier. Same-plan repurchase
- * and downgrades stay blocked. Expired / missing plans can be purchased again.
+ * Same-plan repurchase and upgrades are allowed. Downgrades stay blocked.
+ * Leftover job tokens carry into the new max on activation.
  */
 function canPurchaseMainPlan(subscription, newPlanName) {
   if (!isValidMainPlan(newPlanName)) {
-    return { allowed: false, isUpgrade: false, message: 'Invalid plan' };
+    return { allowed: false, isUpgrade: false, isRepurchase: false, message: 'Invalid plan' };
   }
 
   if (!isActiveUnexpiredSubscription(subscription)) {
-    return { allowed: true, isUpgrade: false };
+    return { allowed: true, isUpgrade: false, isRepurchase: false };
   }
 
   const currentRank = getPlanRank(subscription.planName);
   const newRank = getPlanRank(newPlanName);
 
   if (newRank === currentRank) {
-    return {
-      allowed: false,
-      isUpgrade: false,
-      message: `You already have an active plan (${subscription.planName}).`
-    };
+    return { allowed: true, isUpgrade: false, isRepurchase: true };
   }
 
   if (newRank < currentRank) {
     return {
       allowed: false,
       isUpgrade: false,
+      isRepurchase: false,
       message: `You already have a higher plan (${subscription.planName}). Downgrades are not available.`
     };
   }
 
-  return { allowed: true, isUpgrade: true };
+  return { allowed: true, isUpgrade: true, isRepurchase: false };
 }
 
 module.exports = {

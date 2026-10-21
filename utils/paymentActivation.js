@@ -1,9 +1,12 @@
+const Plan = require('../models/Plan');
 const { getAddonByPlanName } = require('./addonCatalog');
 const { createCommissionForReferredUser } = require('./affiliateCommission');
 const { MAIN_PLANS } = require('./planTiers');
+const { getPlanQuotaForUser, getPlanLimits, buildCarriedQuotaLimits } = require('./planQuota');
 
 /**
  * Activate subscription or add-on on the user after a successful payment.
+ * Buying the same/higher plan keeps leftover jobs and adds the new package to the max.
  * @param {import('../models/User')} user - Mongoose user document
  * @param {import('../models/Payment')} payment - Payment document
  */
@@ -28,13 +31,24 @@ const activatePlanOrAddonForPayment = async (user, payment) => {
     } else if (payment.billingPeriod === 'monthly') {
       endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     }
+
+    const purchasedPlan = await Plan.findOne({ name: payment.planName, isActive: true })
+      .select('jobApplicationsLimit afmJobSearchLimit customerProvidedJobLimit name')
+      .lean();
+    const purchasedLimits = getPlanLimits(payment.planName, purchasedPlan);
+    const currentQuota = await getPlanQuotaForUser(user._id);
+    const carried = buildCarriedQuotaLimits(currentQuota, purchasedLimits);
+
     user.subscription = {
       planName: payment.planName,
       billingPeriod: payment.billingPeriod,
       startDate: new Date(),
       endDate,
       status: 'active',
-      paymentId: payment._id
+      paymentId: payment._id,
+      jobApplicationsLimit: carried.total,
+      afmJobSearchLimit: carried.afm,
+      customerProvidedJobLimit: carried.customer
     };
     await user.save();
   } else {

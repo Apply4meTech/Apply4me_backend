@@ -388,6 +388,19 @@ const UserSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Payment',
       default: null
+    },
+    // Effective job caps after repurchase/upgrade (leftover + newly purchased package)
+    jobApplicationsLimit: {
+      type: Number,
+      default: null
+    },
+    afmJobSearchLimit: {
+      type: Number,
+      default: null
+    },
+    customerProvidedJobLimit: {
+      type: Number,
+      default: null
     }
   },
   // ATS Resume Analysis Report

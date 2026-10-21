@@ -27,19 +27,54 @@ const DEFAULT_PLAN_QUOTAS = {
   Premium: { total: 350, afm: 350, customer: 0 },
 };
 
-const getPlanLimits = (planName, plan = null) => {
+const SUBSCRIPTION_LIMIT_SELECT =
+  'subscription.planName subscription.jobApplicationsLimit subscription.afmJobSearchLimit subscription.customerProvidedJobLimit';
+
+const getPlanLimits = (planName, plan = null, subscription = null) => {
   const defaults = DEFAULT_PLAN_QUOTAS[planName] || {};
   const hasSplitLimits =
     plan?.afmJobSearchLimit !== undefined ||
     plan?.customerProvidedJobLimit !== undefined;
+  let total;
+  let afm;
+  let customer;
   if (defaults.total != null && !hasSplitLimits) {
-    return { total: defaults.total, afm: defaults.afm, customer: defaults.customer };
+    total = defaults.total;
+    afm = defaults.afm;
+    customer = defaults.customer;
+  } else {
+    total = plan?.jobApplicationsLimit ?? defaults.total ?? null;
+    afm = plan?.afmJobSearchLimit ?? defaults.afm ?? null;
+    customer = plan?.customerProvidedJobLimit ?? defaults.customer ?? null;
   }
-  const total = plan?.jobApplicationsLimit ?? defaults.total ?? null;
-  const afm = plan?.afmJobSearchLimit ?? defaults.afm ?? null;
-  const customer = plan?.customerProvidedJobLimit ?? defaults.customer ?? null;
+
+  if (subscription?.jobApplicationsLimit != null) total = subscription.jobApplicationsLimit;
+  if (subscription?.afmJobSearchLimit != null) afm = subscription.afmJobSearchLimit;
+  if (subscription?.customerProvidedJobLimit != null) customer = subscription.customerProvidedJobLimit;
+
   return { total, afm, customer };
 };
+
+/** leftover jobs + newly purchased package. If already at cap, add a full new package on top of used. */
+const nextQuotaLimit = (used, currentLimit, addedLimit) => {
+  if (addedLimit == null) return currentLimit ?? null;
+  const remaining = currentLimit != null ? Math.max(0, currentLimit - (used || 0)) : 0;
+  let next = remaining + addedLimit;
+  if ((used || 0) >= next) {
+    next = (used || 0) + addedLimit;
+  }
+  return next;
+};
+
+const buildCarriedQuotaLimits = (currentQuota, purchasedPlanLimits) => ({
+  total: nextQuotaLimit(currentQuota?.used || 0, currentQuota?.limit ?? null, purchasedPlanLimits?.total ?? null),
+  afm: nextQuotaLimit(currentQuota?.afmUsed || 0, currentQuota?.afmLimit ?? null, purchasedPlanLimits?.afm ?? null),
+  customer: nextQuotaLimit(
+    currentQuota?.customerProvidedUsed || 0,
+    currentQuota?.customerProvidedLimit ?? null,
+    purchasedPlanLimits?.customer ?? null
+  )
+});
 
 /**
  * Plan usage for a customer: used jobs vs plan jobApplicationsLimit (e.g. 24/100).
@@ -51,7 +86,7 @@ const getPlanQuotaForUser = async (userId) => {
     : userId;
 
   const user = await User.findById(userId)
-    .select('subscription.planName')
+    .select(SUBSCRIPTION_LIMIT_SELECT)
     .lean();
   if (!user) return null;
 
@@ -86,7 +121,7 @@ const getPlanQuotaForUser = async (userId) => {
 
   return formatQuota(
     usage?.used || 0,
-    getPlanLimits(planName, plan),
+    getPlanLimits(planName, plan, user.subscription),
     planName,
     usage?.customerProvidedUsed || 0,
     usage?.afmUsed || 0
@@ -122,7 +157,7 @@ const getPlanQuotaForUserIds = async (userIds) => {
 
   const ids = userIds.map((id) => id);
   const users = await User.find({ _id: { $in: ids } })
-    .select('subscription.planName')
+    .select(SUBSCRIPTION_LIMIT_SELECT)
     .lean();
 
   const planNames = [...new Set(users.map((u) => u.subscription?.planName).filter(Boolean))];
@@ -162,7 +197,7 @@ const getPlanQuotaForUserIds = async (userIds) => {
     const usage = usedByUser[key] || {};
     result[key] = formatQuota(
       usage.count || 0,
-      getPlanLimits(planName, planByName[planName]),
+      getPlanLimits(planName, planByName[planName], u.subscription),
       planName,
       usage.customerProvidedUsed || 0,
       usage.afmUsed || 0
@@ -175,6 +210,10 @@ const getPlanQuotaForUserIds = async (userIds) => {
 module.exports = {
   getPlanQuotaForUser,
   getPlanQuotaForUserIds,
+  getPlanLimits,
+  nextQuotaLimit,
+  buildCarriedQuotaLimits,
+  DEFAULT_PLAN_QUOTAS,
   QUOTA_COUNT_STATUSES,
   CUSTOMER_PROVIDED_SOURCES,
 };

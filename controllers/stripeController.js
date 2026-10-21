@@ -2,10 +2,10 @@ const stripeService = require('../services/stripeService');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 const Plan = require('../models/Plan');
-const { createCommissionForReferredUser } = require('../utils/affiliateCommission');
 const { sendAccountActivatedWelcomeEmail, sendChromeExtensionGuideEmail } = require('../utils/emailService');
 const { getAddonByPlanName } = require('../utils/addonCatalog');
-const { MAIN_PLANS, isValidMainPlan, canPurchaseMainPlan } = require('../utils/planTiers');
+const { isValidMainPlan, canPurchaseMainPlan } = require('../utils/planTiers');
+const { activatePlanOrAddonForPayment } = require('../utils/paymentActivation');
 
 const paymentSuccessRedirect = () =>
   `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/success`;
@@ -326,21 +326,7 @@ const devFakePayment = async (req, res) => {
     });
     await payment.save();
 
-    if (isAddonPurchase) {
-      user.purchasedAddons = user.purchasedAddons || [];
-      user.purchasedAddons.push({ name: addonDef.storageName, purchasedAt: new Date() });
-    } else {
-      user.subscription = {
-        planName,
-        billingPeriod: 'onetime',
-        startDate: new Date(),
-        endDate: null,
-        status: 'active',
-        paymentId: payment._id
-      };
-    }
-    await user.save();
-    await createCommissionForReferredUser(payment);
+    await activatePlanOrAddonForPayment(user, payment);
 
     res.json({
       success: true,
@@ -502,39 +488,8 @@ const verifyStripePayment = async (req, res) => {
       try {
         const user = await User.findById(payment.userId);
         if (user) {
-          const addonDef = getAddonByPlanName(payment.planName);
-          const isAddon = !!addonDef;
-
-          if (isAddon) {
-            const addonName = addonDef.storageName;
-            const hasAddon = user.purchasedAddons?.some(a => a.name === addonName);
-            if (!hasAddon) {
-              user.purchasedAddons = user.purchasedAddons || [];
-              user.purchasedAddons.push({ name: addonName, purchasedAt: new Date() });
-              await user.save();
-            }
-          } else if (MAIN_PLANS.includes(payment.planName)) {
-            // Main plan subscription only — unknown planName must not write invalid subscription
-            let endDate = null;
-            if (payment.billingPeriod === 'quarterly') {
-              endDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
-            } else if (payment.billingPeriod === 'monthly') {
-              endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-            }
-            user.subscription = {
-              planName: payment.planName,
-              billingPeriod: payment.billingPeriod,
-              startDate: new Date(),
-              endDate: endDate,
-              status: 'active',
-              paymentId: payment._id
-            };
-            await user.save();
-          } else {
-            console.warn('[stripe] verify: payment planName is not a main plan or catalog add-on:', payment.planName);
-          }
+          await activatePlanOrAddonForPayment(user, payment);
         }
-        await createCommissionForReferredUser(payment);
       } catch (userError) {
         console.error('Error updating user subscription:', userError);
       }
